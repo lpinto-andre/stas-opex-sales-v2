@@ -104,14 +104,19 @@ export async function importDatasetFile(params: {
     const parseT = mark('parsing', 'Parsing workbook and detecting sheet...');
     await pauseForUI();
     const workbook = XLSX.read(buffer, { type: 'array' });
+    console.log('Available sheets:', workbook.SheetNames);
     const sheetNames = workbook.SheetNames;
     let sheetName = params.selectedSheet;
     if (!sheetName) {
       sheetName = sheetNames.find((s) => s === 'Analyse PDR');
     }
     if (!sheetName) {
+      console.warn('Analyse PDR not found. Showing selector.');
       doneMark('parsing', parseT);
       return { type: 'needs-sheet', sheetNames, message: "Default sheet 'Analyse PDR' not found." };
+    }
+    if (sheetName === 'Analyse PDR') {
+      console.log('Using sheet: Analyse PDR');
     }
 
     const sheet = workbook.Sheets[sheetName];
