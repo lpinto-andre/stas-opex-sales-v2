@@ -13,7 +13,6 @@ export type Filters = {
 };
 
 const esc = (v: string) => v.replace(/'/g, "''");
-
 const addList = (col: string, vals?: string[]) => vals?.length ? `${col} IN (${vals.map((v) => `'${esc(v)}'`).join(',')})` : '';
 
 export const buildWhereClause = (f: Filters, dateColumn = 'invoice_date') => {
@@ -61,17 +60,22 @@ const entityColumn: Record<string, string> = {
 
 export async function getRanking(filters: Filters, entity: keyof typeof entityColumn, metric: 'revenue' | 'orders' | 'profit' | 'margin', topN: number) {
   const col = entityColumn[entity];
-  const metricExpr = metric === 'revenue' ? 'SUM(amount)' : metric === 'orders' ? 'COUNT(DISTINCT order_line_id)' : metric === 'profit' ? 'SUM(CASE WHEN cost_present THEN amount-cost END)' : 'SUM(CASE WHEN cost_present THEN amount-cost END)/NULLIF(SUM(amount),0)';
+  const metricExpr = metric === 'revenue'
+    ? 'SUM(amount)'
+    : metric === 'orders'
+      ? 'COUNT(DISTINCT order_num)'
+      : metric === 'profit'
+        ? 'SUM(CASE WHEN cost_present THEN amount-cost END)'
+        : 'SUM(CASE WHEN cost_present THEN amount-cost END)/NULLIF(SUM(amount),0)';
   return queryRows<Record<string, unknown>>(`
     SELECT ${col} AS entity,
       SUM(amount) AS revenue,
-      COUNT(DISTINCT order_line_id) AS orders,
+      COUNT(DISTINCT order_num) AS orders,
       SUM(CASE WHEN cost_present THEN amount-cost END) AS profit,
       SUM(CASE WHEN cost_present THEN amount-cost END)/NULLIF(SUM(amount),0) AS margin,
-      COUNT(DISTINCT invoice_fy) AS active_fy_count,
-      ${metricExpr} AS metric_value
+      COUNT(DISTINCT invoice_fy) AS active_fy_count
     FROM pdr_enriched ${buildWhereClause(filters)}
-    GROUP BY 1 ORDER BY metric_value DESC NULLS LAST LIMIT ${topN}
+    GROUP BY 1 ORDER BY ${metricExpr} DESC NULLS LAST LIMIT ${topN}
   `);
 }
 
