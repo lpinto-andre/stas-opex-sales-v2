@@ -25,21 +25,42 @@ type PartRow = {
 const currency = (value: number) => `$${Math.round(value).toLocaleString()}`;
 const pct = (value: number) => `${Math.round(value * 100)}%`;
 
-const monthStart = (m: string) => (m ? `${m}-01` : '');
+const isValidMonth = (m: string) => /^\d{4}-\d{2}$/.test(m);
+const safeMonthInput = (v: string) => {
+  if (/^\d{0,4}(?:-\d{0,2})?$/.test(v)) return v;
+  return null;
+};
+
+const monthStart = (m: string) => (isValidMonth(m) ? `${m}-01` : '');
 const monthEnd = (m: string) => {
-  if (!m) return '';
+  if (!isValidMonth(m)) return '';
   const [y, mo] = m.split('-').map(Number);
   const d = new Date(y, mo, 0);
   return `${y}-${String(mo).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
 function MultiPick({ label, options, values, onChange }: { label: string; options: Option[]; values: string[]; onChange: (next: string[]) => void }) {
-  return <label className="text-xs text-[var(--text-muted)]">{label}
-    <select multiple value={values} onChange={(e) => onChange(Array.from(e.currentTarget.selectedOptions).map((o) => o.value))} className="card w-full h-24 mt-1 px-2 py-1">
-      {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-    </select>
-  </label>;
+  const toggle = (value: string) => {
+    if (values.includes(value)) onChange(values.filter((v) => v !== value));
+    else onChange([...values, value]);
+  };
+  return <div className="text-xs text-[var(--text-muted)]">
+    <div className="mb-1">{label}</div>
+    <div className="card h-28 overflow-auto p-2 space-y-1">
+      {options.map((o) => <label key={o.value} className="flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" checked={values.includes(o.value)} onChange={() => toggle(o.value)} />
+        <span className="text-xs">{o.label}</span>
+      </label>)}
+      {options.length === 0 && <div className="text-[var(--text-muted)]">No options</div>}
+    </div>
+  </div>;
 }
+
+const fyLabel = (fy: number) => {
+  const start = String((fy - 1) % 100).padStart(2, '0');
+  const end = String(fy % 100).padStart(2, '0');
+  return `FY${start}-${end}`;
+};
 
 export function DatabasePage() {
   const [metric, setMetric] = useState<Metric>('revenue');
@@ -177,6 +198,7 @@ export function DatabasePage() {
 
     <section className="card p-3 mb-3">
       <h3 className="font-semibold mb-2">Filters</h3>
+      <p className="text-xs text-[var(--text-muted)] mb-2">Tip: tick multiple values in each filter to combine selections freely.</p>
       <div className="grid lg:grid-cols-4 gap-3">
         <div className="space-y-2"><input value={customerSearch} onChange={(e) => setCustomerSearch(e.target.value)} placeholder="Search customer" className="card w-full px-2 py-1 text-xs" /><MultiPick label="Customers" options={customerOptions} values={selectedCustomers} onChange={setSelectedCustomers} /></div>
         <div className="space-y-2"><input value={countrySearch} onChange={(e) => setCountrySearch(e.target.value)} placeholder="Search country" className="card w-full px-2 py-1 text-xs" /><MultiPick label="Countries" options={countryOptions} values={selectedCountries} onChange={setSelectedCountries} /></div>
@@ -185,8 +207,8 @@ export function DatabasePage() {
       </div>
       <div className="grid md:grid-cols-4 gap-2 mt-3">
         <label className="text-xs text-[var(--text-muted)]">LineDesc contains<input value={searchText} onChange={(e) => setSearchText(e.target.value)} className="card w-full px-2 py-1 mt-1" /></label>
-        {(periodMode === 'after' || periodMode === 'between') && <label className="text-xs text-[var(--text-muted)]">From (YYYY-MM)<input type="month" value={fromMonth} onChange={(e) => setFromMonth(e.target.value)} className="card w-full px-2 py-1 mt-1" /></label>}
-        {(periodMode === 'before' || periodMode === 'between') && <label className="text-xs text-[var(--text-muted)]">To (YYYY-MM)<input type="month" value={toMonth} onChange={(e) => setToMonth(e.target.value)} className="card w-full px-2 py-1 mt-1" /></label>}
+        {(periodMode === 'after' || periodMode === 'between') && <label className="text-xs text-[var(--text-muted)]">From YYYY-MM<input type="text" inputMode="numeric" placeholder="YYYY-MM" value={fromMonth} onChange={(e) => { const next = safeMonthInput(e.target.value); if (next !== null) setFromMonth(next); }} className="card w-full px-2 py-1 mt-1" /></label>}
+        {(periodMode === 'before' || periodMode === 'between') && <label className="text-xs text-[var(--text-muted)]">To YYYY-MM<input type="text" inputMode="numeric" placeholder="YYYY-MM" value={toMonth} onChange={(e) => { const next = safeMonthInput(e.target.value); if (next !== null) setToMonth(next); }} className="card w-full px-2 py-1 mt-1" /></label>}
       </div>
       {chips.length > 0 && <div className="flex flex-wrap gap-2 mt-3">{chips.map((c) => <button key={`${c.k}:${c.v}`} className="card px-2 py-1 text-xs" onClick={() => removeValue(c.k, c.v)}>{c.k}:{c.v} ×</button>)}</div>}
     </section>
@@ -197,8 +219,8 @@ export function DatabasePage() {
           <tr className="text-left border-b border-[var(--border)]">
             <th className="px-3 py-2">CustID</th><th className="px-3 py-2">CustName</th><th className="px-3 py-2">Country</th><th className="px-3 py-2">PartNum</th><th className="px-3 py-2">LineDesc (25)</th><th className="px-3 py-2">ProdGroup</th>
             <th className="px-3 py-2">Orders</th><th className="px-3 py-2">Revenue</th><th className="px-3 py-2">Profit</th><th className="px-3 py-2">Profit %</th><th className="px-3 py-2">Active FY</th>
-            {fyColumns.map((fy) => <th key={`rev-${fy}`} className="px-3 py-2">Rev FY{fy}</th>)}
-            {fyColumns.map((fy) => <th key={`ord-${fy}`} className="px-3 py-2">Ord FY{fy}</th>)}
+            {fyColumns.map((fy) => <th key={`rev-${fy}`} className="px-3 py-2">Rev {fyLabel(fy)}</th>)}
+            {fyColumns.map((fy) => <th key={`ord-${fy}`} className="px-3 py-2">Ord {fyLabel(fy)}</th>)}
           </tr>
         </thead>
         <tbody>
