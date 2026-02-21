@@ -117,11 +117,13 @@ export async function importDatasetFile(params: { file: File; selectedSheet?: st
 
     const ndjson = cleanedRows.map((r) => JSON.stringify(r)).join('\n');
     const dataNdjson = new TextEncoder().encode(ndjson);
+    const modelBytes = Uint8Array.from(dataNdjson);
+    const cacheBytes = Uint8Array.from(dataNdjson);
 
     checkAbort(params.signal);
     const duckT = mark('duckdb', 'Building DuckDB tables...');
     await pauseForUI();
-    await buildModel(dataNdjson);
+    await buildModel(modelBytes);
     doneMark('duckdb', duckT);
 
     const summary: ImportSummary = {
@@ -144,11 +146,11 @@ export async function importDatasetFile(params: { file: File; selectedSheet?: st
     checkAbort(params.signal);
     const cacheT = mark('caching', 'Saving to local cache...');
     await pauseForUI();
-    await saveDatasetPackage(dataNdjson, summary);
+    await saveDatasetPackage(cacheBytes, summary);
     doneMark('caching', cacheT);
 
     mark('done', 'Dataset loaded successfully.');
-    return { type: 'success', summary, dataNdjson };
+    return { type: 'success', summary, dataNdjson: cacheBytes };
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') return { type: 'cancelled' };
     const message = error instanceof Error ? error.message : 'Unknown import error.';

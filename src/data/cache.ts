@@ -13,7 +13,8 @@ async function getStore() {
 
 export async function saveDatasetPackage(dataNdjson: Uint8Array, meta: object) {
   const db = await getStore();
-  await db.put('dataset', dataNdjson, 'data.ndjson');
+  const safeBytes = Uint8Array.from(dataNdjson);
+  await db.put('dataset', safeBytes, 'data.ndjson');
   await db.put('dataset', meta, 'meta.json');
 }
 
