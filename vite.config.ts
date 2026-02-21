@@ -4,5 +4,8 @@ import { resolve } from 'path';
 
 export default defineConfig({
   plugins: [react()],
-  resolve: { alias: { '@': resolve(__dirname, 'src') } }
+  resolve: { alias: { '@': resolve(__dirname, 'src') } },
+  define: {
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString())
+  }
 });

@@ -4,6 +4,8 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { useAppStore } from '@/state/store';
 import { labels } from '@/constants/labels';
 import { importDatasetFile, type ImportStatus } from '@/data/importPipeline';
+import { buildStasPack, clearDatasetPackage, loadDatasetPackage, parseStasPack, saveDatasetPackage } from '@/data/cache';
+import { buildModel, dropAllTables } from '@/data/duckdb';
 
 type ToastState = { tone: 'success' | 'error'; text: string } | null;
 
@@ -14,6 +16,17 @@ const steps: { phase: ImportStatus['phase']; label: string }[] = [
   { phase: 'duckdb', label: 'Building dataset' },
   { phase: 'caching', label: 'Caching' }
 ];
+
+function downloadFile(bytes: Uint8Array, filename: string) {
+  const safeBytes = Uint8Array.from(bytes);
+  const blob = new Blob([safeBytes], { type: 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 export function DatasetPage() {
   const navigate = useNavigate();
@@ -27,9 +40,9 @@ export function DatasetPage() {
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [sheetNames, setSheetNames] = useState<string[]>([]);
   const [selectedSheet, setSelectedSheet] = useState<string>('');
+  const [isImporting, setIsImporting] = useState(false);
 
   const { datasetMeta, performanceMode, setDataset } = useAppStore();
-  const [isImporting, setIsImporting] = useState(false);
 
   useEffect(() => {
     if (!toast) return;
@@ -42,8 +55,19 @@ export function DatasetPage() {
     return Math.floor((Date.now() - status.startedAt) / 1000);
   }, [status.startedAt, status.progress]);
 
-  const setStatusSafe = (next: ImportStatus) => {
-    setStatus({ ...next });
+  const updateDatasetMeta = (summary: Record<string, unknown>) => {
+    setDataset({
+      loadedAt: String(summary.loadedAt),
+      rowCount: Number(summary.rowCount ?? 0),
+      missingCostPct: Number(summary.missingCostPct ?? 0),
+      fyRange: String(summary.fyRange ?? 'Computed from invoice dates'),
+      dateRange: String(summary.dateRange ?? `${summary.dateMin ?? ''} → ${summary.dateMax ?? ''}`),
+      customers: Number(summary.customers ?? 0),
+      parts: Number(summary.parts ?? 0),
+      selectedSheet: summary.selectedSheet ? String(summary.selectedSheet) : undefined,
+      droppedPct: Number(summary.droppedPct ?? 0),
+      invalidDateRows: Number(summary.invalidDateRows ?? 0)
+    });
   };
 
   const executeImport = async (file: File, forcedSheet?: string) => {
@@ -52,11 +76,25 @@ export function DatasetPage() {
     setSheetWarning('');
     abortRef.current = new AbortController();
     try {
+      if (file.name.toLowerCase().endsWith('.staspack')) {
+        setStatus({ phase: 'reading', progress: 0.2, message: 'Reading dataset package...', startedAt: Date.now() });
+        const buff = new Uint8Array(await file.arrayBuffer());
+        const parsed = parseStasPack(buff);
+        setStatus({ phase: 'duckdb', progress: 0.7, message: 'Building DuckDB tables...', startedAt: Date.now() });
+        await buildModel(parsed.dataNdjson);
+        await saveDatasetPackage(parsed.dataNdjson, parsed.meta);
+        updateDatasetMeta(parsed.meta as Record<string, unknown>);
+        setStatus({ phase: 'done', progress: 1, message: 'Dataset loaded successfully.', startedAt: Date.now() });
+        setToast({ tone: 'success', text: 'Dataset package imported.' });
+        setTimeout(() => navigate('/explorer'), 500);
+        return;
+      }
+
       const result = await importDatasetFile({
         file,
         selectedSheet: forcedSheet,
         signal: abortRef.current.signal,
-        onStatus: setStatusSafe
+        onStatus: setStatus
       });
 
       if (result.type === 'needs-sheet') {
@@ -72,22 +110,9 @@ export function DatasetPage() {
         setToast({ tone: 'error', text: 'Import cancelled.' });
         return;
       }
-
-      const summary = result.summary;
-      setDataset({
-        loadedAt: summary.loadedAt,
-        rowCount: summary.rowCount,
-        missingCostPct: summary.missingCostPct,
-        fyRange: 'Computed from invoice dates',
-        dateRange: `${summary.dateMin} → ${summary.dateMax}`,
-        customers: summary.customers,
-        parts: summary.parts,
-        selectedSheet: summary.selectedSheet,
-        droppedPct: summary.droppedPct,
-        invalidDateRows: summary.invalidDateRows
-      });
+      updateDatasetMeta(result.summary as unknown as Record<string, unknown>);
       setToast({ tone: 'success', text: 'Dataset loaded successfully.' });
-      setTimeout(() => navigate('/explorer'), 800);
+      setTimeout(() => navigate('/explorer'), 500);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unexpected import failure.';
       setErrorMsg(message);
@@ -109,19 +134,47 @@ export function DatasetPage() {
     event.target.value = '';
   };
 
-  const cancelImport = () => {
-    abortRef.current?.abort();
+  const exportStasPack = async () => {
+    const loaded = await loadDatasetPackage();
+    if (!loaded) {
+      setToast({ tone: 'error', text: 'No cached dataset to export.' });
+      return;
+    }
+    const bytes = buildStasPack(loaded.data, loaded.meta);
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15);
+    downloadFile(bytes, `stas_opex_dataset_${stamp}.staspack`);
   };
+
+  const clearLocalDataset = async () => {
+    await clearDatasetPackage();
+    await dropAllTables();
+    setDataset(null);
+    setToast({ tone: 'success', text: 'Local dataset cleared.' });
+  };
+
+  const unregisterSw = async () => {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(regs.map((r) => r.unregister()));
+    setToast({ tone: 'success', text: 'Service workers unregistered.' });
+  };
+
+  const cancelImport = () => abortRef.current?.abort();
 
   return <div className="space-y-4">
     <PageHeader
-      title="Dataset Manager - AA"
+      title="Dataset Manager - A"
       subtitle="Import status debugging enabled"
-      actions={<div className="flex gap-2">
-        <button disabled={isImporting} className="card px-3 py-2 disabled:opacity-50" onClick={() => fileRef.current?.click()}>Import Excel/CSV</button>
+      actions={<div className="flex flex-wrap gap-2 items-center">
+        <span className="px-2 py-1 rounded-full bg-[var(--surface)] border border-[var(--teal)] text-xs text-[var(--teal)]">Build A</span>
+        <button disabled={isImporting} className="card px-3 py-2 disabled:opacity-50" onClick={() => fileRef.current?.click()}>Import Excel/CSV/.staspack</button>
+        <button className="card px-3 py-2" onClick={exportStasPack}>Export .staspack</button>
+        <button className="card px-3 py-2" onClick={clearLocalDataset}>Clear local dataset</button>
+        {import.meta.env.DEV && <button className="card px-3 py-2" onClick={unregisterSw}>Unregister SW</button>}
         {isImporting && <button className="card px-3 py-2 border-[var(--danger)] text-[var(--danger)]" onClick={cancelImport}>Cancel</button>}
       </div>}
     />
+
+    <p className="text-xs text-[var(--text-muted)]">mode: {import.meta.env.MODE} | build: {__BUILD_TIME__}</p>
 
     <input ref={fileRef} type="file" className="hidden" accept=".xlsx,.xlsm,.csv,.staspack" onChange={onFileChange} />
 
@@ -130,7 +183,10 @@ export function DatasetPage() {
         <section className="card p-6 w-full max-w-2xl text-center">
           <div className="mx-auto h-8 w-8 rounded-full border-2 border-[var(--teal)] border-t-transparent animate-spin" />
           <h3 className="mt-3 font-semibold text-lg">Importing dataset... please wait</h3>
-          <p className="text-sm text-[var(--text-muted)] mt-1">Parsing Analyse PDR sheet</p>
+          <p className="text-sm text-[var(--text-muted)] mt-1">{status.message || 'Parsing Analyse PDR sheet'}</p>
+          <p className="text-xs text-[var(--text-muted)] mt-2">Elapsed: {elapsed}s</p>
+          <div className="mt-3 h-2 w-full bg-[var(--surface)] rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-[var(--teal)] to-[var(--green)]" style={{ width: `${Math.round(status.progress * 100)}%` }} /></div>
+          <div className="grid grid-cols-5 gap-2 mt-3 text-xs">{steps.map((s) => <div key={s.phase} className="card p-1">{s.label}</div>)}</div>
         </section>
       </div>
     )}
@@ -148,75 +204,13 @@ export function DatasetPage() {
       </section>
     )}
 
-    {isImporting && (
-      <section className="card p-4 shadow-[0_0_0_1px_rgba(27,199,179,0.25)]">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="h-5 w-5 rounded-full border-2 border-[var(--teal)] border-t-transparent animate-spin" />
-            <div>
-              <div className="font-medium">Import in progress...</div>
-              <div className="text-xs text-[var(--text-muted)]">{status.message} · Do not close this tab.</div>
-            </div>
-          </div>
-          <div className="text-xs text-[var(--text-muted)]">Elapsed: {elapsed}s</div>
-        </div>
-        <div className="mt-3 h-2 w-full bg-[var(--surface)] rounded-full overflow-hidden">
-          <div className="h-full bg-gradient-to-r from-[var(--teal)] to-[var(--green)]" style={{ width: `${Math.round(status.progress * 100)}%` }} />
-        </div>
-        <div className="grid md:grid-cols-5 gap-2 mt-3 text-xs">
-          {steps.map((step) => {
-            const done = steps.findIndex((s) => s.phase === step.phase) < steps.findIndex((s) => s.phase === status.phase);
-            const active = status.phase === step.phase;
-            return <div key={step.phase} className="card px-2 py-1 text-center">
-              <span className={done ? 'text-[var(--green)]' : active ? 'text-[var(--teal)]' : 'text-[var(--text-muted)]'}>{done ? '✓' : active ? '•' : '○'} {step.label}</span>
-            </div>;
-          })}
-        </div>
-      </section>
-    )}
-
-    {errorMsg && (
-      <section className="card p-4 border-[var(--danger)]">
-        <h3 className="font-semibold text-[var(--danger)]">Import failed</h3>
-        <p className="text-sm mt-1">{errorMsg}</p>
-        <ul className="text-xs text-[var(--text-muted)] list-disc ml-4 mt-2">
-          <li>Check sheet name and confirm "Analyse PDR" exists.</li>
-          <li>Ensure required columns like InvoiceDate, Amount, and OrderNum are available.</li>
-          <li>Verify date and numeric columns are not fully blank.</li>
-        </ul>
-        <details className="mt-3 text-xs">
-          <summary className="cursor-pointer text-[var(--text-muted)]">Technical details</summary>
-          <pre className="mt-2 whitespace-pre-wrap text-[var(--text-muted)]">{errorDetails}</pre>
-        </details>
-      </section>
-    )}
-
-    {datasetMeta && status.phase === 'done' && (
-      <section className="card p-4 border-[var(--green)]">
-        <h3 className="font-semibold text-[var(--green)]">Dataset loaded successfully</h3>
-        <div className="grid md:grid-cols-3 gap-2 mt-2 text-sm">
-          <p>Rows imported: <span className="font-semibold">{datasetMeta.rowCount}</span></p>
-          <p>Date range: <span className="font-semibold">{datasetMeta.dateRange}</span></p>
-          <p>Customers: <span className="font-semibold">{datasetMeta.customers}</span></p>
-          <p>Parts: <span className="font-semibold">{datasetMeta.parts}</span></p>
-          <p>Rows dropped (Amount≤0): <span className="font-semibold">{(datasetMeta.droppedPct ?? 0).toFixed(2)}%</span></p>
-          <p className={datasetMeta.missingCostPct > 0 ? 'text-[var(--warning)]' : ''}>Missing cost: <span className="font-semibold">{datasetMeta.missingCostPct.toFixed(2)}%</span></p>
-          <p>Loaded: <span className="font-semibold">{new Date(datasetMeta.loadedAt).toLocaleString()}</span></p>
-          <p>Sheet used: <span className="font-semibold">{datasetMeta.selectedSheet ?? 'N/A'}</span></p>
-        </div>
-        <button className="card px-3 py-2 mt-3" onClick={() => navigate('/explorer')}>Go to Explorer</button>
-      </section>
-    )}
+    {errorMsg && <section className="card p-4 border-[var(--danger)]"><h3 className="font-semibold text-[var(--danger)]">Import failed</h3><p className="text-sm mt-1">{errorMsg}</p><details className="mt-3 text-xs"><summary>Technical details</summary><pre className="mt-2 whitespace-pre-wrap text-[var(--text-muted)]">{errorDetails}</pre></details></section>}
 
     <div className="grid md:grid-cols-2 gap-4">
       <section className="card p-4 space-y-2"><h3 className="font-semibold">Current dataset status</h3><p>{performanceMode ? labels.hpOn : labels.hpOff}</p><pre className="text-xs text-[var(--text-muted)]">{JSON.stringify(datasetMeta, null, 2) || 'No dataset loaded'}</pre></section>
       <section className="card p-4"><h3 className="font-semibold">Validation report</h3><p className="text-sm text-[var(--text-muted)]">Required columns, filtered rows, invalid dates, and missing cost rows are listed after import.</p></section>
     </div>
 
-    {toast && (
-      <div className={`fixed right-4 bottom-4 card px-4 py-2 ${toast.tone === 'success' ? 'border-[var(--green)] text-[var(--green)]' : 'border-[var(--danger)] text-[var(--danger)]'}`}>
-        {toast.text}
-      </div>
-    )}
+    {toast && <div className={`fixed right-4 bottom-4 card px-4 py-2 ${toast.tone === 'success' ? 'border-[var(--green)] text-[var(--green)]' : 'border-[var(--danger)] text-[var(--danger)]'}`}>{toast.text}</div>}
   </div>;
 }

@@ -7,7 +7,11 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "prepare:duckdb": "node scripts/copy-duckdb-assets.mjs",
+    "postinstall": "npm run prepare:duckdb",
+    "predev": "npm run prepare:duckdb",
+    "prebuild": "npm run prepare:duckdb"
   },
   "dependencies": {
     "@duckdb/duckdb-wasm": "^1.29.0",
