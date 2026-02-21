@@ -1,18 +1,7 @@
 import { create } from 'zustand';
 import type { Filters } from '@/data/queries';
 
-type DatasetMeta = {
-  loadedAt: string;
-  rowCount: number;
-  missingCostPct: number;
-  fyRange: string;
-  dateRange: string;
-  customers: number;
-  parts: number;
-  selectedSheet?: string;
-  droppedPct?: number;
-  invalidDateRows?: number;
-} | null;
+type DatasetMeta = { loadedAt: string; rowCount: number; missingCostPct: number; fyRange: string; dateRange: string; customers: number; parts: number } | null;
 
 type AppState = {
   datasetLoaded: boolean;
