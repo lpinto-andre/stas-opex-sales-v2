@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.wasm
+*.zip
+*.xlsm
+*.xlsx
+*.staspack
+public/duckdb/*
+!public/duckdb/.gitkeep
+
+src/**/*.js
+tsconfig.tsbuildinfo
