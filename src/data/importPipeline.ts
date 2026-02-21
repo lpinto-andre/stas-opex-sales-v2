@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { mapColumns } from '@/data/columnMapping';
+import { detectHeaderRow, mapColumns } from '@/data/columnMapping';
 import { saveDatasetPackage } from '@/data/cache';
 import { buildModel } from '@/data/duckdb';
 import { parseDate } from '@/utils/fiscal';
@@ -71,14 +71,19 @@ export async function importDatasetFile(params: { file: File; selectedSheet?: st
     if (sheetName === 'Analyse PDR') console.log('Using sheet: Analyse PDR');
     const sheet = workbook.Sheets[sheetName];
     if (!sheet) throw new Error(`Sheet '${sheetName}' cannot be read.`);
-    const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+    const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' });
+    if (!matrix.length) throw new Error('Selected sheet is empty.');
+    const { headerRowIndex, score } = detectHeaderRow(matrix);
+    if (score <= 0) throw new Error('Unable to detect a valid header row in the selected sheet.');
+    const header = (matrix[headerRowIndex] ?? []).map((h) => String(h ?? '').trim());
+    const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', range: headerRowIndex });
     doneMark('parsing', parseT);
 
     checkAbort(params.signal);
     const cleanT = mark('cleaning', 'Cleaning columns and validating rows...');
     await pauseForUI();
-    if (!rawRows.length) throw new Error('Selected sheet is empty.');
-    const colMap = mapColumns(Object.keys(rawRows[0]));
+    if (!rawRows.length) throw new Error('Selected sheet has no data rows.');
+    const colMap = mapColumns(header);
     const missing = requiredColumns.filter((c) => !colMap[c]);
     if (missing.length) throw new Error(`Missing required columns: ${missing.join(', ')}`);
 
