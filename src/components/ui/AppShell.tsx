@@ -6,7 +6,7 @@ import { loadDatasetPackage } from '@/data/cache';
 import { buildModel } from '@/data/duckdb';
 import { useAppStore } from '@/state/store';
 
-const nav = ['/dataset', '/explorer', '/rankings', '/top-items', '/decline'];
+const nav = ['/dataset', '/explorer', '/rankings', '/database', '/top-items', '/decline'];
 
 export function AppShell({ children }: { children: ReactNode }) {
   const setDataset = useAppStore((s) => s.setDataset);

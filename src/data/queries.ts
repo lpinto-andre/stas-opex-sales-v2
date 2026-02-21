@@ -84,7 +84,6 @@ export const getDistinctOptions = (column: string, search = '', limit = 200) => 
   return queryRows<{ value: string }>(`SELECT DISTINCT ${column} AS value FROM pdr_enriched ${searchClause} ORDER BY 1 LIMIT ${limit}`);
 };
 
-
 export const getCustomerOptions = (search = '', limit = 200) => {
   const clause = search ? `WHERE lower(cust_id) LIKE '%${esc(search.toLowerCase())}%' OR lower(cust_name) LIKE '%${esc(search.toLowerCase())}%'` : '';
   return queryRows<{ value: string; label: string }>(`SELECT DISTINCT cust_id AS value, concat(cust_id, ' - ', cust_name) AS label FROM pdr_enriched ${clause} ORDER BY 2 LIMIT ${limit}`);
@@ -106,6 +105,18 @@ export const getPartsPriorityRows = (filters: Filters, limit = 500) => queryRows
   GROUP BY 1,2,3,4,5,6
   ORDER BY revenue DESC
   LIMIT ${limit}
+`);
+
+export const getPartsRevenueByFY = (filters: Filters) => queryRows<Record<string, unknown>>(`
+  SELECT cust_id, cust_name, country, part_num, substr(line_desc,1,25) AS line_desc_short, prod_group, invoice_fy AS fy, SUM(amount) AS revenue
+  FROM pdr_enriched ${buildWhereClause(filters)}
+  GROUP BY 1,2,3,4,5,6,7
+`);
+
+export const getPartsOrdersByFY = (filters: Filters) => queryRows<Record<string, unknown>>(`
+  SELECT cust_id, cust_name, country, part_num, substr(line_desc,1,25) AS line_desc_short, prod_group, order_line_fy AS fy, COUNT(DISTINCT order_num) AS orders
+  FROM pdr_enriched ${buildWhereClause(filters, 'order_line_first_invoice_date')}
+  GROUP BY 1,2,3,4,5,6,7
 `);
 
 export async function getPartYearMetrics(filters: Filters) {
