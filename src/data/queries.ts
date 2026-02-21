@@ -84,6 +84,30 @@ export const getDistinctOptions = (column: string, search = '', limit = 200) => 
   return queryRows<{ value: string }>(`SELECT DISTINCT ${column} AS value FROM pdr_enriched ${searchClause} ORDER BY 1 LIMIT ${limit}`);
 };
 
+
+export const getCustomerOptions = (search = '', limit = 200) => {
+  const clause = search ? `WHERE lower(cust_id) LIKE '%${esc(search.toLowerCase())}%' OR lower(cust_name) LIKE '%${esc(search.toLowerCase())}%'` : '';
+  return queryRows<{ value: string; label: string }>(`SELECT DISTINCT cust_id AS value, concat(cust_id, ' - ', cust_name) AS label FROM pdr_enriched ${clause} ORDER BY 2 LIMIT ${limit}`);
+};
+
+export const getPartsPriorityRows = (filters: Filters, limit = 500) => queryRows<Record<string, unknown>>(`
+  SELECT
+    cust_id,
+    cust_name,
+    country,
+    part_num,
+    substr(line_desc, 1, 25) AS line_desc_short,
+    prod_group,
+    COUNT(DISTINCT order_num) AS orders,
+    SUM(amount) AS revenue,
+    SUM(CASE WHEN cost_present THEN amount - cost END) AS profit,
+    CASE WHEN SUM(amount)=0 THEN 0 ELSE SUM(CASE WHEN cost_present THEN amount - cost END)/SUM(amount) END AS profit_pct
+  FROM pdr_enriched ${buildWhereClause(filters)}
+  GROUP BY 1,2,3,4,5,6
+  ORDER BY revenue DESC
+  LIMIT ${limit}
+`);
+
 export async function getPartYearMetrics(filters: Filters) {
   return queryRows<{ part_num: string; invoice_fy: number; order_line_fy: number; revenue: number; orders: number; profit: number; margin: number }>(`
     WITH rev AS (
