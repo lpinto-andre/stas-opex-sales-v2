@@ -14,10 +14,17 @@ type PartRow = {
 const COLORS = ['#0ea5e9', '#22c55e', '#f97316', '#a855f7', '#06b6d4', '#f43f5e', '#eab308', '#10b981'];
 const currency = (value: number) => `$${Math.round(value).toLocaleString()}`;
 const pct = (value: number) => `${Math.round(value * 100)}%`;
+const tooltipStyle = { background: '#0f172a', border: '1px solid #334155', color: '#f8fafc' };
+const tooltipLabelStyle = { color: '#f8fafc', fontWeight: 600 };
 const isValidMonth = (m: string) => /^\d{4}-\d{2}$/.test(m);
 const safeMonthInput = (v: string) => (/^\d{0,4}(?:-\d{0,2})?$/.test(v) ? v : null);
 const monthStart = (m: string) => (isValidMonth(m) ? `${m}-01` : '');
 const monthEnd = (m: string) => { if (!isValidMonth(m)) return ''; const [y, mo] = m.split('-').map(Number); const d = new Date(y, mo, 0); return `${y}-${String(mo).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const fyLabel = (fyRaw: number | string) => {
+  const fy = Number(fyRaw);
+  if (!fy) return String(fyRaw ?? '');
+  return `FY${String((fy - 1) % 100).padStart(2, '0')}-${String(fy % 100).padStart(2, '0')}`;
+};
 
 const titleByKey: Record<TopKey, string> = {
   trendRevenue: 'Top Items: Revenue by Time', trendOrders: 'Top Items: Orders by Time', totalRevenue: 'Top Items: Total Revenue', totalOrders: 'Top Items: Total Orders', multiRevenue: 'Top Items: Revenue by Time (multiple curves)', multiOrders: 'Top Items: Orders by Time (multiple curves)'
@@ -99,20 +106,20 @@ export function ExplorerGraphicDetailPage() {
   };
 
   const renderExpanded = () => {
-    if (graphicKey === 'trendRevenue') return <LineChart data={chartRows.map((r) => ({ fy: String(r.fy ?? ''), revenue: Number(r.revenue ?? 0) }))}><XAxis dataKey="fy"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} /><Line type="monotone" dataKey="revenue" stroke="#0ea5e9" /></LineChart>;
-    if (graphicKey === 'trendOrders') return <LineChart data={chartRows.map((r) => ({ fy: String(r.fy ?? ''), orders: Number(r.orders ?? 0) }))}><XAxis dataKey="fy"/><YAxis/><Tooltip /><Line type="monotone" dataKey="orders" stroke="#84cc16" /></LineChart>;
+    if (graphicKey === 'trendRevenue') return <LineChart data={chartRows.map((r) => ({ fy: Number(r.fy ?? 0), revenue: Number(r.revenue ?? 0) }))}><XAxis dataKey="fy" tickFormatter={fyLabel}/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} labelFormatter={(v) => fyLabel(String(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Line type="monotone" dataKey="revenue" stroke="#0ea5e9" /></LineChart>;
+    if (graphicKey === 'trendOrders') return <LineChart data={chartRows.map((r) => ({ fy: Number(r.fy ?? 0), orders: Number(r.orders ?? 0) }))}><XAxis dataKey="fy" tickFormatter={fyLabel}/><YAxis/><Tooltip labelFormatter={(v) => fyLabel(String(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Line type="monotone" dataKey="orders" stroke="#84cc16" /></LineChart>;
     if (graphicKey === 'totalRevenue') return <BarChart data={chartRows.map((r) => ({ part_num: String(r.part_num ?? ''), revenue: Number(r.revenue ?? 0) }))}><XAxis dataKey="part_num"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} /><Bar dataKey="revenue" fill="#0ea5e9"/></BarChart>;
     if (graphicKey === 'totalOrders') return <BarChart data={chartRows.map((r) => ({ part_num: String(r.part_num ?? ''), orders: Number(r.orders ?? 0) }))}><XAxis dataKey="part_num"/><YAxis/><Tooltip /><Bar dataKey="orders" fill="#65a30d"/></BarChart>;
     if (graphicKey === 'multiRevenue') {
       const series = parts.slice(0, 8); const data = pivotByFy(chartRows, 'revenue', series);
-      return <LineChart data={data}><XAxis dataKey="fy"/><YAxis/><Tooltip shared formatter={(v) => currency(Number(v))} />{series.map((p, i) => <Line key={p} type="monotone" dataKey={p} stroke={COLORS[i % COLORS.length]} dot />)}</LineChart>;
+      return <LineChart data={data}><XAxis dataKey="fy" tickFormatter={fyLabel}/><YAxis/><Tooltip shared formatter={(v) => currency(Number(v))} labelFormatter={(v) => fyLabel(String(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />{series.map((p, i) => <Line key={p} type="monotone" dataKey={p} stroke={COLORS[i % COLORS.length]} dot />)}</LineChart>;
     }
     const series = parts.slice(0, 8); const data = pivotByFy(chartRows, 'orders', series);
-    return <LineChart data={data}><XAxis dataKey="fy"/><YAxis/><Tooltip shared />{series.map((p, i) => <Line key={p} type="monotone" dataKey={p} stroke={COLORS[i % COLORS.length]} dot />)}</LineChart>;
+    return <LineChart data={data}><XAxis dataKey="fy" tickFormatter={fyLabel}/><YAxis/><Tooltip shared labelFormatter={(v) => fyLabel(String(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />{series.map((p, i) => <Line key={p} type="monotone" dataKey={p} stroke={COLORS[i % COLORS.length]} dot />)}</LineChart>;
   };
 
   return <div>
-    <PageHeader title={titleByKey[graphicKey]} subtitle="Expanded view with supporting details." actions={<Link to="/explorer" className="card px-3 py-2">Back to Discover</Link>} />
+    <PageHeader title={titleByKey[graphicKey]} subtitle="Expanded view with supporting details. Time-based charts use fiscal years (May–Apr)." actions={<Link to="/explorer" className="card px-3 py-2">Back to Discover</Link>} />
 
     <section className="card p-3 mb-4">
       <h3 className="font-semibold mb-2">Graphic Filters</h3>
@@ -125,7 +132,16 @@ export function ExplorerGraphicDetailPage() {
 
     <section className="card p-3 h-[34rem] mb-4"><h3 className="font-semibold mb-2">Expanded Chart</h3><ResponsiveContainer>{renderExpanded()}</ResponsiveContainer></section>
 
-    <section className="card p-3 h-[22rem] mb-4"><h3 className="font-semibold mb-2">Revenue Mix (donut)</h3><ResponsiveContainer><PieChart><Pie data={pieRows} dataKey="revenue" nameKey="part_num" innerRadius={70} outerRadius={110}>{pieRows.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}</Pie><Tooltip formatter={(v) => currency(Number(v))} /><Legend /></PieChart></ResponsiveContainer></section>
+    <section className="card p-3 mb-4">
+      <h3 className="font-semibold mb-2">Revenue Mix (donut + top contributors)</h3>
+      <div className="grid lg:grid-cols-[1fr_320px] gap-3 items-stretch">
+        <div className="h-[22rem]"><ResponsiveContainer><PieChart><Pie data={pieRows} dataKey="revenue" nameKey="part_num" innerRadius={85} outerRadius={135}>{pieRows.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}</Pie><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /></PieChart></ResponsiveContainer></div>
+        <div className="card p-2 overflow-auto h-[22rem]">
+          <div className="text-xs text-[var(--text-muted)] mb-2">Legend / contribution</div>
+          <div className="space-y-1">{pieRows.map((r, i) => <div key={r.part_num} className="flex items-center justify-between gap-2 text-xs"><span className="inline-flex items-center gap-2 min-w-0"><span className="w-3 h-3 rounded-sm" style={{ backgroundColor: COLORS[i % COLORS.length] }} /><span className="truncate">{r.part_num}</span></span><span className="whitespace-nowrap">{currency(r.revenue)}</span></div>)}</div>
+        </div>
+      </div>
+    </section>
 
     <section className="card overflow-auto">
       <table className="w-full table-auto text-sm">
