@@ -68,10 +68,10 @@ export function DeclinePage() {
 
   const [rankBy, setRankBy] = useState<RankMetric>('revenue');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
-  const [minPastRevenue, setMinPastRevenue] = useState(10000);
-  const [minPastOrders, setMinPastOrders] = useState(5);
-  const [maxRevRatio, setMaxRevRatio] = useState(0.5);
-  const [maxOrdRatio, setMaxOrdRatio] = useState(0.5);
+  const [minPastRevenue, setMinPastRevenue] = useState('');
+  const [minPastOrders, setMinPastOrders] = useState('');
+  const [maxRevRatio, setMaxRevRatio] = useState('');
+  const [maxOrdRatio, setMaxOrdRatio] = useState('');
   const [logic, setLogic] = useState<'AND' | 'OR'>('AND');
 
   const [searchText, setSearchText] = useState('');
@@ -116,6 +116,11 @@ export function DeclinePage() {
     return f;
   }, [selectedCustomers, selectedCountries, selectedParts, selectedProdGroups, searchText, periodMode, fromMonth, toMonth]);
 
+  const minPastRevenueNum = minPastRevenue === '' ? null : Number(minPastRevenue);
+  const minPastOrdersNum = minPastOrders === '' ? null : Number(minPastOrders);
+  const maxRevRatioNum = maxRevRatio === '' ? null : Number(maxRevRatio);
+  const maxOrdRatioNum = maxOrdRatio === '' ? null : Number(maxOrdRatio);
+
   useEffect(() => {
     Promise.all([getPartYearMetrics(filters), getPartsPriorityRows(filters, 6000), getPartsRevenueByFY(filters), getPartsOrdersByFY(filters)]).then(([data, partRows, revFY, ordFY]) => {
       const byPart = new Map<string, { fy: number; revenue: number; orders: number }[]>();
@@ -151,15 +156,15 @@ export function DeclinePage() {
         if ((pastRev === 0 && recentRev > 0) || (pastOrd === 0 && recentOrd > 0)) label = 'New';
         else if ((recentRev === 0 && pastRev > 0) || (recentOrd === 0 && pastOrd > 0)) label = 'Inactive';
         else if (revenue_ratio > 1 || orders_ratio > 1) label = 'Growing';
-        else if ((logic === 'AND' && revenue_ratio <= maxRevRatio && orders_ratio <= maxOrdRatio) || (logic === 'OR' && (revenue_ratio <= maxRevRatio || orders_ratio <= maxOrdRatio))) label = 'Declining';
+        else if (maxRevRatioNum != null && maxOrdRatioNum != null && ((logic === 'AND' && revenue_ratio <= maxRevRatioNum && orders_ratio <= maxOrdRatioNum) || (logic === 'OR' && (revenue_ratio <= maxRevRatioNum || orders_ratio <= maxOrdRatioNum)))) label = 'Declining';
 
         const details = detailByPart.get(part);
         return { label, cust_id: details?.cust_id ?? '', cust_name: details?.cust_name ?? '', country: details?.country ?? '', part_num: part, line_desc_short: details?.line_desc_short ?? '', prod_group: details?.prod_group ?? '', revenue: details?.revenue ?? 0, orders: details?.orders ?? 0, profit: details?.profit ?? 0, margin: details?.margin ?? 0, past_avg_rev: pastRev, recent_avg_rev: recentRev, past_avg_orders: pastOrd, recent_avg_orders: recentOrd, revenue_ratio, orders_ratio };
       });
 
       const filtered = mapped.filter((row) => {
-        const minCheck = row.past_avg_rev >= minPastRevenue && row.past_avg_orders >= minPastOrders;
-        const ratioCheck = logic === 'AND' ? row.revenue_ratio <= maxRevRatio && row.orders_ratio <= maxOrdRatio : row.revenue_ratio <= maxRevRatio || row.orders_ratio <= maxOrdRatio;
+        const minCheck = (minPastRevenueNum == null || row.past_avg_rev >= minPastRevenueNum) && (minPastOrdersNum == null || row.past_avg_orders >= minPastOrdersNum);
+        const ratioCheck = maxRevRatioNum == null && maxOrdRatioNum == null ? true : (maxRevRatioNum == null ? row.orders_ratio <= (maxOrdRatioNum ?? 0) : maxOrdRatioNum == null ? row.revenue_ratio <= (maxRevRatioNum ?? 0) : logic === 'AND' ? row.revenue_ratio <= maxRevRatioNum && row.orders_ratio <= maxOrdRatioNum : row.revenue_ratio <= maxRevRatioNum || row.orders_ratio <= maxOrdRatioNum);
         const labelCheck = selectedLabels.length === 0 || selectedLabels.includes(row.label);
         return minCheck && ratioCheck && labelCheck;
       });
@@ -184,7 +189,7 @@ export function DeclinePage() {
       setRows(sorted);
       setFyColumns(years);
     });
-  }, [filters, k, m, minPastRevenue, minPastOrders, maxRevRatio, maxOrdRatio, logic, selectedLabels, rankBy, sortDir]);
+  }, [filters, k, m, minPastRevenueNum, minPastOrdersNum, maxRevRatioNum, maxOrdRatioNum, logic, selectedLabels, rankBy, sortDir]);
 
   const chips = [...selectedCustomers.map((v) => ({ k: 'customers' as const, v })), ...selectedCountries.map((v) => ({ k: 'countries' as const, v })), ...selectedParts.map((v) => ({ k: 'parts' as const, v })), ...selectedProdGroups.map((v) => ({ k: 'prodGroups' as const, v })), ...selectedLabels.map((v) => ({ k: 'labels' as const, v }))];
   const removeValue = (kind: 'customers' | 'countries' | 'parts' | 'prodGroups' | 'labels', value: string) => {
@@ -196,7 +201,9 @@ export function DeclinePage() {
   };
 
   return <div>
-    <PageHeader title="Labels Model" subtitle="Classify parts as Declining/Stable/Growing/New/Inactive." actions={<div className="grid grid-cols-3 gap-2 items-end">
+    <PageHeader title="Labels Model" subtitle="Classify parts as Declining/Stable/Growing/New/Inactive." actions={<div className="grid grid-cols-5 gap-2 items-end">
+      <label className="text-xs text-[var(--text-muted)]">Rank by<select value={rankBy} onChange={(e) => setRankBy(e.target.value as RankMetric)} className="card w-full px-2 py-1 mt-1"><option value="revenue">Revenue</option><option value="orders">Orders</option><option value="profit">Profit</option><option value="margin">Profit %</option><option value="revenue_ratio">Revenue Ratio</option><option value="orders_ratio">Orders Ratio</option></select></label>
+      <label className="text-xs text-[var(--text-muted)]">Order<select value={sortDir} onChange={(e) => setSortDir(e.target.value as SortDir)} className="card w-full px-2 py-1 mt-1"><option value="desc">Descending</option><option value="asc">Ascending</option></select></label>
       <label className="text-xs text-[var(--text-muted)]">Recent FY window (k)<input type="number" value={k} onChange={(e) => setK(Number(e.target.value || 2))} className="card w-full px-2 py-1 mt-1" /></label>
       <label className="text-xs text-[var(--text-muted)]">Past FY window (m)<input type="number" value={m} onChange={(e) => setM(Number(e.target.value || 3))} className="card w-full px-2 py-1 mt-1" /></label>
       <label className="text-xs text-[var(--text-muted)]">Period<select value={periodMode} onChange={(e) => setPeriodMode(e.target.value as PeriodMode)} className="card px-2 py-1 block w-full mt-1"><option value="all">All</option><option value="after">After (month)</option><option value="before">Before (month)</option><option value="between">Between (months)</option></select></label>
@@ -213,16 +220,15 @@ export function DeclinePage() {
       </div>
       <div className="grid md:grid-cols-4 gap-2 mt-3">
         <label className="text-xs text-[var(--text-muted)]">LineDesc contains<input value={searchText} onChange={(e) => setSearchText(e.target.value)} className="card w-full px-2 py-1 mt-1" /></label>
-        <label className="text-xs text-[var(--text-muted)]">Rank by<select value={rankBy} onChange={(e) => setRankBy(e.target.value as RankMetric)} className="card w-full px-2 py-1 mt-1"><option value="revenue">Revenue</option><option value="orders">Orders</option><option value="profit">Profit</option><option value="margin">Profit %</option><option value="revenue_ratio">Revenue Ratio</option><option value="orders_ratio">Orders Ratio</option></select></label>
-        <label className="text-xs text-[var(--text-muted)]">Order<select value={sortDir} onChange={(e) => setSortDir(e.target.value as SortDir)} className="card w-full px-2 py-1 mt-1"><option value="desc">Descending</option><option value="asc">Ascending</option></select></label>
       </div>
       <div className="grid md:grid-cols-4 gap-2 mt-3">
-        <label className="text-xs text-[var(--text-muted)]">Min Past Revenue<input type="number" value={minPastRevenue} onChange={(e) => setMinPastRevenue(Number(e.target.value || 10000))} className="card w-full px-2 py-1 mt-1" /></label>
-        <label className="text-xs text-[var(--text-muted)]">Min Past Orders<input type="number" value={minPastOrders} onChange={(e) => setMinPastOrders(Number(e.target.value || 5))} className="card w-full px-2 py-1 mt-1" /></label>
-        <label className="text-xs text-[var(--text-muted)]">Max Revenue Ratio<input type="number" value={maxRevRatio} onChange={(e) => setMaxRevRatio(Number(e.target.value || 0.5))} className="card w-full px-2 py-1 mt-1" /></label>
-        <label className="text-xs text-[var(--text-muted)]">Max Orders Ratio<input type="number" value={maxOrdRatio} onChange={(e) => setMaxOrdRatio(Number(e.target.value || 0.5))} className="card w-full px-2 py-1 mt-1" /></label>
+        <label className="text-xs text-[var(--text-muted)]">Min Past Revenue<input type="number" value={minPastRevenue} onChange={(e) => setMinPastRevenue(e.target.value)} className="card w-full px-2 py-1 mt-1" /></label>
+        <label className="text-xs text-[var(--text-muted)]">Min Past Orders<input type="number" value={minPastOrders} onChange={(e) => setMinPastOrders(e.target.value)} className="card w-full px-2 py-1 mt-1" /></label>
+        <label className="text-xs text-[var(--text-muted)]">Max Revenue Ratio<input type="number" value={maxRevRatio} onChange={(e) => setMaxRevRatio(e.target.value)} className="card w-full px-2 py-1 mt-1" /></label>
+        <label className="text-xs text-[var(--text-muted)]">Max Orders Ratio<input type="number" value={maxOrdRatio} onChange={(e) => setMaxOrdRatio(e.target.value)} className="card w-full px-2 py-1 mt-1" /></label>
       </div>
       <div className="grid md:grid-cols-4 gap-2 mt-3">
+        <button className="card px-3 py-2 self-end text-xs" onClick={() => { setMinPastRevenue(''); setMinPastOrders(''); setMaxRevRatio(''); setMaxOrdRatio(''); }}>Reset numeric filters</button>
         <label className="text-xs text-[var(--text-muted)]">Decline Logic<select value={logic} onChange={(e) => setLogic(e.target.value as 'AND' | 'OR')} className="card px-2 py-1 block w-full mt-1"><option>AND</option><option>OR</option></select></label>
         {(periodMode === 'after' || periodMode === 'between') && <label className="text-xs text-[var(--text-muted)]">From YYYY-MM<input type="text" inputMode="numeric" placeholder="YYYY-MM" value={fromMonth} onChange={(e) => { const next = safeMonthInput(e.target.value); if (next !== null) setFromMonth(next); }} className="card w-full px-2 py-1 mt-1" /></label>}
         {(periodMode === 'before' || periodMode === 'between') && <label className="text-xs text-[var(--text-muted)]">To YYYY-MM<input type="text" inputMode="numeric" placeholder="YYYY-MM" value={toMonth} onChange={(e) => { const next = safeMonthInput(e.target.value); if (next !== null) setToMonth(next); }} className="card w-full px-2 py-1 mt-1" /></label>}

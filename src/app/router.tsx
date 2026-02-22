@@ -13,7 +13,8 @@ export function AppRouter() {
   return <AppShell><Routes>
     <Route path="/dataset" element={<DatasetPage />} />
     <Route path="/explorer" element={<ExplorerPage />} />
-    <Route path="/rankings" element={<RankingsPage />} />
+    <Route path="/group-by" element={<RankingsPage />} />
+    <Route path="/rankings" element={<Navigate to="/group-by" replace />} />
     <Route path="/top-items" element={<TopItemsPage />} />
     <Route path="/labels" element={<DeclinePage />} />
     <Route path="/decline" element={<Navigate to="/labels" replace />} />

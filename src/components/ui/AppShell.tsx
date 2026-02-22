@@ -6,7 +6,8 @@ import { loadDatasetPackage } from '@/data/cache';
 import { buildModel } from '@/data/duckdb';
 import { useAppStore } from '@/state/store';
 
-const nav = ['/dataset', '/explorer', '/rankings', '/database', '/top-items', '/labels'];
+const nav = ['/dataset', '/explorer', '/group-by', '/database', '/top-items', '/labels'];
+const navLabel: Record<string, string> = { '/dataset': 'dataset', '/explorer': 'explorer', '/group-by': 'Group By', '/database': 'Parts Database', '/top-items': 'Top Items', '/labels': 'Labels' };
 
 export function AppShell({ children }: { children: ReactNode }) {
   const setDataset = useAppStore((s) => s.setDataset);
@@ -46,7 +47,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return <div className="min-h-screen text-[var(--text)]">
     <header className="border-b border-[var(--border)] bg-[var(--surface)]/90 px-6 py-4 flex items-center justify-between">
       <Link to="/" className="font-semibold">{labels.appName}</Link>
-      <nav className="flex gap-2">{nav.map((n) => <NavLink key={n} to={n} className={({ isActive }) => `px-3 py-1 rounded-full border text-sm ${isActive ? 'border-[var(--teal)] text-[var(--teal)] shadow-[0_0_0_1px_rgba(27,199,179,0.2)]' : 'border-[var(--border)] text-[var(--text-muted)]'}`}>{n.slice(1)}</NavLink>)}</nav>
+      <nav className="flex gap-2">{nav.map((n) => <NavLink key={n} to={n} className={({ isActive }) => `px-3 py-1 rounded-full border text-sm ${isActive ? 'border-[var(--teal)] text-[var(--teal)] shadow-[0_0_0_1px_rgba(27,199,179,0.2)]' : 'border-[var(--border)] text-[var(--text-muted)]'}`}>{navLabel[n] ?? n.slice(1)}</NavLink>)}</nav>
     </header>
     {restoring && <div className="px-6 py-2 text-xs text-[var(--text-muted)]">Restoring cached dataset…</div>}
     <main className="p-6">{children}</main>
