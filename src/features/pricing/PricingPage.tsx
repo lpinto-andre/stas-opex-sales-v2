@@ -51,8 +51,10 @@ export function PricingPage() {
   const [scatter, setScatter] = useState<Record<string, unknown>[]>([]);
   const [dispersion, setDispersion] = useState<Record<string, unknown>[]>([]);
   const [anomalies, setAnomalies] = useState<Record<string, unknown>[]>([]);
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
+    setLoadError('');
     Promise.all([
       getPricingKPIs(filters, costOnly),
       getRevenueCostProfitOverTime(filters, costOnly, aggGranularity),
@@ -63,9 +65,12 @@ export function PricingPage() {
       getPriceDispersionStats(filters, costOnly, viewEntity === 'parts' ? 'part' : 'customer', 40),
       getAnomaliesTable(filters, costOnly, { minRevenue, minOrders, marginThreshold, dispersionThreshold })
     ]).then(([k, tr, d, lr, lm, sc, di, an]) => {
-      setKpis(k as Record<string, number>); setTrend(tr as Record<string, unknown>[]); setDist(d as Record<string, unknown>[]);
-      setLeadersRev(lr as Record<string, unknown>[]); setLeadersMetric(lm as Record<string, unknown>[]); setScatter(sc as Record<string, unknown>[]);
-      setDispersion(di as Record<string, unknown>[]); setAnomalies(an as Record<string, unknown>[]);
+      setKpis((k as Record<string, number>) ?? {}); setTrend((tr as Record<string, unknown>[]) ?? []); setDist((d as Record<string, unknown>[]) ?? []);
+      setLeadersRev((lr as Record<string, unknown>[]) ?? []); setLeadersMetric((lm as Record<string, unknown>[]) ?? []); setScatter((sc as Record<string, unknown>[]) ?? []);
+      setDispersion((di as Record<string, unknown>[]) ?? []); setAnomalies((an as Record<string, unknown>[]) ?? []);
+    }).catch((err) => {
+      setLoadError(err instanceof Error ? err.message : 'Failed to load pricing analytics');
+      setKpis({}); setTrend([]); setDist([]); setLeadersRev([]); setLeadersMetric([]); setScatter([]); setDispersion([]); setAnomalies([]);
     });
   }, [filters, costOnly, aggGranularity, viewEntity, topMetric, minRevenue, minOrders, marginThreshold, dispersionThreshold]);
 
@@ -88,6 +93,8 @@ export function PricingPage() {
       <label className="text-xs text-[var(--text-muted)]">Time Grain<select value={aggGranularity} onChange={(e) => setAggGranularity(e.target.value as 'monthly'|'fy')} className="card w-full px-2 py-1 mt-1"><option value="monthly">Monthly</option><option value="fy">Fiscal Year</option></select></label>
       <label className="text-xs text-[var(--text-muted)]">Top Metric<select value={topMetric} onChange={(e) => setTopMetric(e.target.value as 'revenue'|'profit'|'margin_pct'|'avg_price')} className="card w-full px-2 py-1 mt-1"><option value="revenue">Revenue</option><option value="profit">Profit</option><option value="margin_pct">Margin %</option><option value="avg_price">Avg Price</option></select></label>
     </div>} />
+
+    {loadError && <section className="card p-3 mb-3 border-[var(--danger)]"><h3 className="font-semibold text-[var(--danger)]">Pricing analytics query failed</h3><p className="text-sm mt-1">{loadError}</p></section>}
 
     <section className="card p-3 mb-3"><div className="grid md:grid-cols-8 gap-2">
       <label className="text-xs text-[var(--text-muted)]">From (YYYY-MM)<input value={fromMonth} onChange={(e) => setFromMonth(e.target.value)} className="card w-full px-2 py-1 mt-1" /></label>

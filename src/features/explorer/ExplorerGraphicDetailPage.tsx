@@ -71,6 +71,7 @@ export function ExplorerGraphicDetailPage() {
   const [fyColumns, setFyColumns] = useState<number[]>([]);
   const [chartRows, setChartRows] = useState<Record<string, unknown>[]>([]);
   const [pieRows, setPieRows] = useState<{ part_num: string; revenue: number }[]>([]);
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
     const nextTopFilters = { ...topFilters, [graphicKey]: { fromMonth, toMonth, parts } };
@@ -78,6 +79,7 @@ export function ExplorerGraphicDetailPage() {
   }, [fromMonth, toMonth, parts]);
 
   useEffect(() => {
+    setLoadError('');
     Promise.all([
       getPartsPriorityRows(baseFilters, 3000), getPartsRevenueByFY(baseFilters), getPartsOrdersByFY(baseFilters),
       getRevenueTotalsForParts(baseFilters, parts),
@@ -94,7 +96,10 @@ export function ExplorerGraphicDetailPage() {
       (ordFy as Record<string, unknown>[]).forEach((r) => { const part = String(r.part_num ?? ''); const fy = Number(r.fy ?? 0); const row = map.get(part); if (!row || !fy) return; yearsSet.add(fy); row[`orders_fy_${fy}`] = Number(r.orders ?? 0); });
       const years = [...yearsSet].sort((a, b) => a - b);
       map.forEach((row) => { row.active_fy_count = years.filter((fy) => Number(row[`revenue_fy_${fy}`] ?? 0) > 0).length; years.forEach((fy) => { if (row[`revenue_fy_${fy}`] == null) row[`revenue_fy_${fy}`] = 0; if (row[`orders_fy_${fy}`] == null) row[`orders_fy_${fy}`] = 0; }); });
-      setFyColumns(years); setTableRows([...map.values()]); setPieRows((pie as Record<string, unknown>[]).map((p) => ({ part_num: String(p.part_num ?? ''), revenue: Number(p.revenue ?? 0) }))); setChartRows(chart as Record<string, unknown>[]);
+      setFyColumns(years); setTableRows([...map.values()]); setPieRows((pie as Record<string, unknown>[]).map((p) => ({ part_num: String(p.part_num ?? ''), revenue: Number(p.revenue ?? 0) }))); setChartRows((chart as Record<string, unknown>[]) ?? []);
+    }).catch((err) => {
+      setLoadError(err instanceof Error ? err.message : 'Failed to load expanded analytics');
+      setTableRows([]); setFyColumns([]); setPieRows([]); setChartRows([]);
     });
   }, [baseFilters, parts, graphicKey]);
 
@@ -120,6 +125,8 @@ export function ExplorerGraphicDetailPage() {
 
   return <div>
     <PageHeader title={titleByKey[graphicKey]} subtitle="Expanded view with supporting details. Time-based charts use fiscal years (May–Apr)." actions={<Link to="/explorer" className="card px-3 py-2">Back to Discover</Link>} />
+
+    {loadError && <section className="card p-3 mb-4 border-[var(--danger)]"><h3 className="font-semibold text-[var(--danger)]">Expanded analytics query failed</h3><p className="text-sm mt-1">{loadError}</p></section>}
 
     <section className="card p-3 mb-4">
       <h3 className="font-semibold mb-2">Graphic Filters</h3>
