@@ -154,3 +154,126 @@ export async function getPartYearMetrics(filters: Filters) {
     FROM rev FULL OUTER JOIN ord ON rev.part_num=ord.part_num AND rev.fy=ord.fy
   `);
 }
+
+
+const basePricingWhere = (filters: Filters, costOnly = true, dateColumn = 'invoice_date') => {
+  const where = buildWhereClause(filters, dateColumn);
+  const extra = [`amount >= 0`, costOnly ? `cost_present` : ``].filter(Boolean).join(' AND ');
+  if (!where) return extra ? `WHERE ${extra}` : '';
+  return `${where} AND ${extra}`;
+};
+
+export async function getPricingKPIs(filters: Filters, costOnly = true) {
+  const rows = await queryRows<Record<string, number>>(`
+    SELECT
+      COALESCE(SUM(amount),0) AS revenue,
+      COALESCE(SUM(CASE WHEN cost_present THEN cost END),0) AS cost,
+      COALESCE(SUM(CASE WHEN cost_present THEN amount-cost END),0) AS profit,
+      CASE WHEN COALESCE(SUM(CASE WHEN cost_present THEN amount END),0)=0 THEN 0 ELSE SUM(CASE WHEN cost_present THEN amount-cost END)/SUM(CASE WHEN cost_present THEN amount END) END AS margin_pct,
+      CASE WHEN COALESCE(SUM(CASE WHEN cost_present THEN amount END),0)=0 THEN 0 ELSE SUM(CASE WHEN cost_present THEN (amount-cost)*amount END)/NULLIF(SUM(CASE WHEN cost_present THEN amount*amount END),0) END AS avg_margin_pct,
+      CASE WHEN COUNT(*)=0 THEN 0 ELSE SUM(CASE WHEN cost_present THEN 0 ELSE 1 END)::DOUBLE/COUNT(*) END AS missing_cost_pct,
+      COUNT(DISTINCT invoice_num) AS invoice_count,
+      COUNT(DISTINCT order_line_id) AS order_count
+    FROM pdr_enriched ${basePricingWhere(filters, costOnly)}
+  `);
+  return rows[0] ?? {};
+}
+
+export const getRevenueCostProfitOverTime = (filters: Filters, costOnly = true, granularity: 'monthly' | 'fy' = 'monthly') => {
+  const period = granularity === 'monthly' ? 'invoice_month' : 'invoice_fy';
+  return queryRows<Record<string, unknown>>(`
+    SELECT ${period} AS period,
+      SUM(amount) AS revenue,
+      SUM(CASE WHEN cost_present THEN cost END) AS cost,
+      SUM(CASE WHEN cost_present THEN amount-cost END) AS profit,
+      CASE WHEN SUM(CASE WHEN cost_present THEN amount END)=0 THEN 0 ELSE SUM(CASE WHEN cost_present THEN amount-cost END)/SUM(CASE WHEN cost_present THEN amount END) END AS margin_pct
+    FROM pdr_enriched ${basePricingWhere(filters, costOnly)} GROUP BY 1 ORDER BY 1
+  `);
+};
+
+export const getMarginDistribution = (filters: Filters, costOnly = true, bucketSpec = [-20,0,10,20,30,40,50,60,999]) => {
+  const cases = bucketSpec.slice(0,-1).map((start, i) => `WHEN margin_pct >= ${start/100} AND margin_pct < ${bucketSpec[i+1]/100} THEN '[${start},${bucketSpec[i+1]})'`).join(' ');
+  return queryRows<Record<string, unknown>>(`
+    WITH b AS (
+      SELECT amount, CASE WHEN amount=0 OR NOT cost_present THEN NULL ELSE (amount-cost)/amount END AS margin_pct
+      FROM pdr_enriched ${basePricingWhere(filters, true)}
+    )
+    SELECT CASE ${cases} ELSE '[60,999]' END AS bucketLabel,
+      COUNT(*) AS count_lines,
+      SUM(amount) AS revenue_in_bucket
+    FROM b WHERE margin_pct IS NOT NULL GROUP BY 1 ORDER BY 1
+  `);
+};
+
+export const getTopEntitiesByMetric = (filters: Filters, costOnly = true, entityType: 'parts'|'customers'='parts', metric: 'revenue'|'profit'|'margin_pct'|'avg_price'='revenue', topN = 15) => {
+  const idCol = entityType === 'parts' ? 'part_num' : 'cust_id';
+  const nameCol = entityType === 'parts' ? 'substr(max(line_desc),1,40)' : 'max(cust_name)';
+  const metricExpr = metric === 'revenue' ? 'SUM(amount)' : metric === 'profit' ? 'SUM(CASE WHEN cost_present THEN amount-cost END)' : metric === 'margin_pct' ? 'SUM(CASE WHEN cost_present THEN amount-cost END)/NULLIF(SUM(CASE WHEN cost_present THEN amount END),0)' : 'AVG(amount)';
+  return queryRows<Record<string, unknown>>(`
+    SELECT ${idCol} AS id, ${nameCol} AS name, ${metricExpr} AS value
+    FROM pdr_enriched ${basePricingWhere(filters, costOnly)}
+    GROUP BY 1 ORDER BY 3 DESC NULLS LAST LIMIT ${topN}
+  `);
+};
+
+export const getMarginLeakScatter = (filters: Filters, costOnly = true, entityType: 'parts'|'customers'='parts', topNUniverse = 500) => {
+  const idCol = entityType === 'parts' ? 'part_num' : 'cust_id';
+  const nameCol = entityType === 'parts' ? 'substr(max(line_desc),1,40)' : 'max(cust_name)';
+  return queryRows<Record<string, unknown>>(`
+    SELECT ${idCol} AS id, ${nameCol} AS name,
+      SUM(amount) AS revenue,
+      SUM(CASE WHEN cost_present THEN amount-cost END) AS profit,
+      CASE WHEN SUM(CASE WHEN cost_present THEN amount END)=0 THEN 0 ELSE SUM(CASE WHEN cost_present THEN amount-cost END)/SUM(CASE WHEN cost_present THEN amount END) END AS margin_pct,
+      COUNT(DISTINCT order_line_id) AS orders,
+      AVG(amount) AS avg_price
+    FROM pdr_enriched ${basePricingWhere(filters, costOnly)}
+    GROUP BY 1 ORDER BY revenue DESC LIMIT ${topNUniverse}
+  `);
+};
+
+export const getPriceDispersionStats = (filters: Filters, costOnly = true, entityType: 'part'|'customer'='part', topN = 30) => {
+  const idCol = entityType === 'part' ? 'part_num' : 'cust_id';
+  return queryRows<Record<string, unknown>>(`
+    SELECT ${idCol} AS id,
+      SUM(amount) AS revenue,
+      quantile_cont(amount,0.5) AS median_price,
+      quantile_cont(amount,0.25) AS p25_price,
+      quantile_cont(amount,0.75) AS p75_price,
+      MIN(amount) AS min_price,
+      MAX(amount) AS max_price,
+      (quantile_cont(amount,0.75)-quantile_cont(amount,0.25))/NULLIF(quantile_cont(amount,0.5),0) AS dispersion_index,
+      quantile_cont(CASE WHEN cost_present THEN (amount-cost)/NULLIF(amount,0) END,0.5) AS median_margin
+    FROM pdr_enriched ${basePricingWhere(filters, costOnly)}
+    GROUP BY 1 ORDER BY revenue DESC LIMIT ${topN}
+  `);
+};
+
+export const getAnomaliesTable = (filters: Filters, costOnly = true, params: { minRevenue?: number; minOrders?: number; marginThreshold?: number; dispersionThreshold?: number } = {}) => {
+  const minRevenue = Number(params.minRevenue ?? 0);
+  const minOrders = Number(params.minOrders ?? 0);
+  const marginThreshold = Number(params.marginThreshold ?? 0.2);
+  const dispersionThreshold = Number(params.dispersionThreshold ?? 0.25);
+  return queryRows<Record<string, unknown>>(`
+    WITH base AS (
+      SELECT
+        part_num, substr(max(line_desc),1,40) AS line_desc,
+        cust_id, max(cust_name) AS cust_name,
+        max(country) AS country, max(territory) AS territory, max(prod_group) AS prod_group,
+        SUM(amount) AS revenue,
+        COUNT(DISTINCT order_line_id) AS orders,
+        AVG(amount) AS avg_price,
+        MIN(amount) AS min_price,
+        MAX(amount) AS max_price,
+        SUM(CASE WHEN cost_present THEN amount-cost END) AS profit,
+        CASE WHEN SUM(CASE WHEN cost_present THEN amount END)=0 THEN 0 ELSE SUM(CASE WHEN cost_present THEN amount-cost END)/SUM(CASE WHEN cost_present THEN amount END) END AS margin_pct,
+        (quantile_cont(amount,0.75)-quantile_cont(amount,0.25))/NULLIF(quantile_cont(amount,0.5),0) AS dispersion_index
+      FROM pdr_enriched ${basePricingWhere(filters, costOnly)}
+      GROUP BY 1,3
+    )
+    SELECT * FROM base
+    WHERE revenue >= ${minRevenue} AND orders >= ${minOrders}
+      AND (margin_pct <= ${marginThreshold} OR dispersion_index >= ${dispersionThreshold})
+    ORDER BY margin_pct ASC, revenue DESC
+    LIMIT 3000
+  `);
+};

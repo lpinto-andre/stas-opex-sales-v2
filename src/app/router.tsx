@@ -7,6 +7,7 @@ import { RankingsPage } from '@/features/rankings/RankingsPage';
 import { TopItemsPage } from '@/features/top-items/TopItemsPage';
 import { DeclinePage } from '@/features/decline/DeclinePage';
 import { DatabasePage } from '@/features/database/DatabasePage';
+import { PricingPage } from '@/features/pricing/PricingPage';
 import { useAppStore } from '@/state/store';
 
 export function AppRouter() {
@@ -21,6 +22,7 @@ export function AppRouter() {
     <Route path="/labels" element={<DeclinePage />} />
     <Route path="/decline" element={<Navigate to="/labels" replace />} />
     <Route path="/database" element={<DatabasePage />} />
+    <Route path="/pricing" element={<PricingPage />} />
     <Route path="*" element={<Navigate to={datasetLoaded ? '/explorer' : '/dataset'} replace />} />
   </Routes></AppShell>;
 }
