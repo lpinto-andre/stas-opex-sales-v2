@@ -54,8 +54,10 @@ export function PricingPage() {
   const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
+    let active = true;
     setLoadError('');
-    Promise.all([
+
+    Promise.allSettled([
       getPricingKPIs(filters, costOnly),
       getRevenueCostProfitOverTime(filters, costOnly, aggGranularity),
       getMarginDistribution(filters, costOnly),
@@ -64,14 +66,25 @@ export function PricingPage() {
       getMarginLeakScatter(filters, costOnly, viewEntity, 2000),
       getPriceDispersionStats(filters, costOnly, viewEntity === 'parts' ? 'part' : 'customer', 40),
       getAnomaliesTable(filters, costOnly, { minRevenue, minOrders, marginThreshold, dispersionThreshold })
-    ]).then(([k, tr, d, lr, lm, sc, di, an]) => {
-      setKpis((k as Record<string, number>) ?? {}); setTrend((tr as Record<string, unknown>[]) ?? []); setDist((d as Record<string, unknown>[]) ?? []);
-      setLeadersRev((lr as Record<string, unknown>[]) ?? []); setLeadersMetric((lm as Record<string, unknown>[]) ?? []); setScatter((sc as Record<string, unknown>[]) ?? []);
-      setDispersion((di as Record<string, unknown>[]) ?? []); setAnomalies((an as Record<string, unknown>[]) ?? []);
-    }).catch((err) => {
-      setLoadError(err instanceof Error ? err.message : 'Failed to load pricing analytics');
-      setKpis({}); setTrend([]); setDist([]); setLeadersRev([]); setLeadersMetric([]); setScatter([]); setDispersion([]); setAnomalies([]);
+    ]).then((results) => {
+      if (!active) return;
+      const [k, tr, d, lr, lm, sc, di, an] = results;
+      setKpis(k.status === 'fulfilled' ? ((k.value as Record<string, number>) ?? {}) : {});
+      setTrend(tr.status === 'fulfilled' ? ((tr.value as Record<string, unknown>[]) ?? []) : []);
+      setDist(d.status === 'fulfilled' ? ((d.value as Record<string, unknown>[]) ?? []) : []);
+      setLeadersRev(lr.status === 'fulfilled' ? ((lr.value as Record<string, unknown>[]) ?? []) : []);
+      setLeadersMetric(lm.status === 'fulfilled' ? ((lm.value as Record<string, unknown>[]) ?? []) : []);
+      setScatter(sc.status === 'fulfilled' ? ((sc.value as Record<string, unknown>[]) ?? []) : []);
+      setDispersion(di.status === 'fulfilled' ? ((di.value as Record<string, unknown>[]) ?? []) : []);
+      setAnomalies(an.status === 'fulfilled' ? ((an.value as Record<string, unknown>[]) ?? []) : []);
+
+      const firstError = results.find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined;
+      setLoadError(firstError ? (firstError.reason instanceof Error ? firstError.reason.message : 'Failed to load some pricing analytics') : '');
     });
+
+    return () => {
+      active = false;
+    };
   }, [filters, costOnly, aggGranularity, viewEntity, topMetric, minRevenue, minOrders, marginThreshold, dispersionThreshold]);
 
   useEffect(() => {

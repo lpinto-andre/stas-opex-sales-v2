@@ -79,28 +79,48 @@ export function ExplorerGraphicDetailPage() {
   }, [fromMonth, toMonth, parts]);
 
   useEffect(() => {
+    let active = true;
     setLoadError('');
-    Promise.all([
+
+    Promise.allSettled([
       getPartsPriorityRows(baseFilters, 3000), getPartsRevenueByFY(baseFilters), getPartsOrdersByFY(baseFilters),
       getRevenueTotalsForParts(baseFilters, parts),
       graphicKey.includes('Revenue') ? (graphicKey.includes('multi') ? getRevenueByFYAndPartForParts(baseFilters, parts) : getRevenueByFYForParts(baseFilters, parts)) : (graphicKey.includes('multi') ? getOrdersByFYAndPartForParts(baseFilters, parts) : getOrdersByFYForParts(baseFilters, parts))
-    ]).then(([base, revFy, ordFy, pie, chart]) => {
+    ]).then((results) => {
+      if (!active) return;
+      const [baseRes, revFyRes, ordFyRes, pieRes, chartRes] = results;
+      if (baseRes.status !== 'fulfilled') {
+        setLoadError(baseRes.reason instanceof Error ? baseRes.reason.message : 'Failed to load expanded analytics');
+        setTableRows([]); setFyColumns([]); setPieRows([]); setChartRows([]);
+        return;
+      }
+
+      const base = (baseRes.value as Record<string, unknown>[]) ?? [];
+      const revFy = revFyRes.status === 'fulfilled' ? ((revFyRes.value as Record<string, unknown>[]) ?? []) : [];
+      const ordFy = ordFyRes.status === 'fulfilled' ? ((ordFyRes.value as Record<string, unknown>[]) ?? []) : [];
+      const pie = pieRes.status === 'fulfilled' ? ((pieRes.value as Record<string, unknown>[]) ?? []) : [];
+      const chart = chartRes.status === 'fulfilled' ? ((chartRes.value as Record<string, unknown>[]) ?? []) : [];
+
       const map = new Map<string, PartRow>();
-      (base as Record<string, unknown>[]).forEach((r) => {
+      base.forEach((r) => {
         const part = String(r.part_num ?? '');
         if (!part || !parts.includes(part)) return;
         map.set(part, { cust_id: String(r.cust_id ?? ''), cust_name: String(r.cust_name ?? ''), country: String(r.country ?? ''), part_num: part, line_desc_short: String(r.line_desc_short ?? ''), prod_group: String(r.prod_group ?? ''), orders: Number(r.orders ?? 0), revenue: Number(r.revenue ?? 0), profit: Number(r.profit ?? 0), profit_pct: Number(r.profit_pct ?? 0), active_fy_count: 0 });
       });
       const yearsSet = new Set<number>();
-      (revFy as Record<string, unknown>[]).forEach((r) => { const part = String(r.part_num ?? ''); const fy = Number(r.fy ?? 0); const row = map.get(part); if (!row || !fy) return; yearsSet.add(fy); row[`revenue_fy_${fy}`] = Number(r.revenue ?? 0); });
-      (ordFy as Record<string, unknown>[]).forEach((r) => { const part = String(r.part_num ?? ''); const fy = Number(r.fy ?? 0); const row = map.get(part); if (!row || !fy) return; yearsSet.add(fy); row[`orders_fy_${fy}`] = Number(r.orders ?? 0); });
+      revFy.forEach((r) => { const part = String(r.part_num ?? ''); const fy = Number(r.fy ?? 0); const row = map.get(part); if (!row || !fy) return; yearsSet.add(fy); row[`revenue_fy_${fy}`] = Number(r.revenue ?? 0); });
+      ordFy.forEach((r) => { const part = String(r.part_num ?? ''); const fy = Number(r.fy ?? 0); const row = map.get(part); if (!row || !fy) return; yearsSet.add(fy); row[`orders_fy_${fy}`] = Number(r.orders ?? 0); });
       const years = [...yearsSet].sort((a, b) => a - b);
       map.forEach((row) => { row.active_fy_count = years.filter((fy) => Number(row[`revenue_fy_${fy}`] ?? 0) > 0).length; years.forEach((fy) => { if (row[`revenue_fy_${fy}`] == null) row[`revenue_fy_${fy}`] = 0; if (row[`orders_fy_${fy}`] == null) row[`orders_fy_${fy}`] = 0; }); });
-      setFyColumns(years); setTableRows([...map.values()]); setPieRows((pie as Record<string, unknown>[]).map((p) => ({ part_num: String(p.part_num ?? ''), revenue: Number(p.revenue ?? 0) }))); setChartRows((chart as Record<string, unknown>[]) ?? []);
-    }).catch((err) => {
-      setLoadError(err instanceof Error ? err.message : 'Failed to load expanded analytics');
-      setTableRows([]); setFyColumns([]); setPieRows([]); setChartRows([]);
+      setFyColumns(years); setTableRows([...map.values()]); setPieRows(pie.map((p) => ({ part_num: String(p.part_num ?? ''), revenue: Number(p.revenue ?? 0) }))); setChartRows(chart);
+
+      const firstError = [revFyRes, ordFyRes, pieRes, chartRes].find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined;
+      setLoadError(firstError ? (firstError.reason instanceof Error ? firstError.reason.message : 'Failed to load some expanded analytics') : '');
     });
+
+    return () => {
+      active = false;
+    };
   }, [baseFilters, parts, graphicKey]);
 
   const togglePart = (p: string) => setParts((x) => x.includes(p) ? x.filter((v) => v !== p) : [...x, p]);
