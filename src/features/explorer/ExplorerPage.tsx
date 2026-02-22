@@ -10,13 +10,13 @@ import {
   getOrderTotalsForParts,
   getOrdersByFY,
   getOrdersByMonth,
-  getOrdersByMonthAndPartForParts,
-  getOrdersByMonthForParts,
+  getOrdersByFYAndPartForParts,
+  getOrdersByFYForParts,
   getOrdersByProdGroup,
   getRevenueByFY,
   getRevenueByMonth,
-  getRevenueByMonthAndPartForParts,
-  getRevenueByMonthForParts,
+  getRevenueByFYAndPartForParts,
+  getRevenueByFYForParts,
   getRevenueByProdGroup,
   getRevenueTotalsForParts,
   type Filters
@@ -171,12 +171,12 @@ export function ExplorerPage() {
 
   useEffect(() => {
     Promise.all([
-      getRevenueByMonthForParts(sectionFilters(topFilters.trendRevenue), topFilters.trendRevenue.parts),
-      getOrdersByMonthForParts(sectionFilters(topFilters.trendOrders), topFilters.trendOrders.parts),
+      getRevenueByFYForParts(sectionFilters(topFilters.trendRevenue), topFilters.trendRevenue.parts),
+      getOrdersByFYForParts(sectionFilters(topFilters.trendOrders), topFilters.trendOrders.parts),
       getRevenueTotalsForParts(sectionFilters(topFilters.totalRevenue), topFilters.totalRevenue.parts),
       getOrderTotalsForParts(sectionFilters(topFilters.totalOrders), topFilters.totalOrders.parts),
-      getRevenueByMonthAndPartForParts(sectionFilters(topFilters.multiRevenue), topFilters.multiRevenue.parts),
-      getOrdersByMonthAndPartForParts(sectionFilters(topFilters.multiOrders), topFilters.multiOrders.parts)
+      getRevenueByFYAndPartForParts(sectionFilters(topFilters.multiRevenue), topFilters.multiRevenue.parts),
+      getOrdersByFYAndPartForParts(sectionFilters(topFilters.multiOrders), topFilters.multiOrders.parts)
     ]).then(([trm, tom, trt, tot, mrm, mom]) => {
       setTopRevByMonth(trm as Record<string, unknown>[]);
       setTopOrdByMonth(tom as Record<string, unknown>[]);
@@ -226,16 +226,32 @@ export function ExplorerPage() {
   const chartRevGroup = revGroup.map((r) => ({ prod_group: String(r.prod_group ?? ''), revenue: Math.round(Number(r.revenue ?? 0)) }));
   const chartOrdGroup = ordGroup.map((r) => ({ prod_group: String(r.prod_group ?? ''), orders: Number(r.orders ?? 0) }));
 
-  const chartTopRevMonth = topRevByMonth.map((r) => ({ month: String(r.month ?? ''), revenue: Math.round(Number(r.revenue ?? 0)) }));
-  const chartTopOrdMonth = topOrdByMonth.map((r) => ({ month: String(r.month ?? ''), orders: Number(r.orders ?? 0) }));
+  const chartTopRevMonth = topRevByMonth.map((r) => ({ fy: String(r.fy ?? ''), revenue: Math.round(Number(r.revenue ?? 0)) }));
+  const chartTopOrdMonth = topOrdByMonth.map((r) => ({ fy: String(r.fy ?? ''), orders: Number(r.orders ?? 0) }));
   const chartTopRevTotals = topRevTotals.map((r) => ({ part_num: String(r.part_num ?? ''), revenue: Math.round(Number(r.revenue ?? 0)) }));
   const chartTopOrdTotals = topOrdTotals.map((r) => ({ part_num: String(r.part_num ?? ''), orders: Number(r.orders ?? 0) }));
 
-  const chartTopRevMulti = topRevByMonthPart.map((r) => ({ month: String(r.month ?? ''), part_num: String(r.part_num ?? ''), revenue: Math.round(Number(r.revenue ?? 0)) }));
-  const chartTopOrdMulti = topOrdByMonthPart.map((r) => ({ month: String(r.month ?? ''), part_num: String(r.part_num ?? ''), orders: Number(r.orders ?? 0) }));
-
   const multiRevSeries = (topFilters.multiRevenue.parts.length ? topFilters.multiRevenue.parts : defaultTopParts).slice(0, 8);
   const multiOrdSeries = (topFilters.multiOrders.parts.length ? topFilters.multiOrders.parts : defaultTopParts).slice(0, 8);
+
+  const pivotByFy = (rows: Record<string, unknown>[], valueKey: 'revenue' | 'orders', series: string[]) => {
+    const byFy = new Map<string, Record<string, number | string>>();
+    rows.forEach((r) => {
+      const fy = String(r.fy ?? '');
+      const part = String(r.part_num ?? '');
+      if (!fy || !part) return;
+      if (!byFy.has(fy)) byFy.set(fy, { fy });
+      byFy.get(fy)![part] = Number(r[valueKey] ?? 0);
+    });
+    return [...byFy.values()].sort((a, b) => Number(a.fy) - Number(b.fy)).map((row) => {
+      const filled: Record<string, number | string> = { ...row };
+      series.forEach((part) => { if (filled[part] == null) filled[part] = 0; });
+      return filled;
+    });
+  };
+
+  const chartTopRevMulti = pivotByFy(topRevByMonthPart, 'revenue', multiRevSeries);
+  const chartTopOrdMulti = pivotByFy(topOrdByMonthPart, 'orders', multiOrdSeries);
 
   const renderTopControls = (key: keyof typeof topFilters) => {
     const current = topFilters[key];
@@ -278,8 +294,8 @@ export function ExplorerPage() {
       {chips.length > 0 && <div className="flex flex-wrap gap-2 mt-3">{chips.map((c) => <button key={`${c.k}:${c.v}`} onClick={() => removeValue(c.k, c.v)} className="px-2 py-1 rounded-full bg-[var(--surface)] border border-[var(--border)] text-xs">{c.k}:{c.v} ×</button>)}</div>}
     </section>
 
-    <section className="mb-4">
-      <h3 className="font-semibold mb-2">General Graphics</h3>
+    <section className="mb-6 border-2 border-[var(--border)] rounded-2xl p-4 bg-[var(--surface)]/30">
+      <h3 className="font-semibold mb-3 text-base">General Graphics</h3>
       <div className="grid md:grid-cols-4 gap-3 mb-4">
         <KPIStatCard label="Revenue" value={currency(Number(kpis.revenue ?? 0))} />
         <KPIStatCard label="Profit" value={currency(Number(kpis.profit ?? 0))} />
@@ -299,15 +315,15 @@ export function ExplorerPage() {
       </div>
     </section>
 
-    <section className="mb-4">
-      <h3 className="font-semibold mb-2">Top Items Graphics</h3>
+    <section className="mb-4 border-2 border-[var(--teal)]/40 rounded-2xl p-4 bg-[var(--surface)]/20">
+      <h3 className="font-semibold mb-3 text-base">Top Items Graphics</h3>
       <div className="grid xl:grid-cols-2 gap-4">
-        <section className="card p-3 min-h-[34rem] flex flex-col"><h3 className="font-semibold mb-2">Top Items: Revenue by Time</h3>{renderTopControls('trendRevenue')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopRevMonth}><XAxis dataKey="month"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Line type="monotone" dataKey="revenue" stroke="#06b6d4"/></LineChart></ResponsiveContainer></div></section>
-        <section className="card p-3 min-h-[34rem] flex flex-col"><h3 className="font-semibold mb-2">Top Items: Orders by Time</h3>{renderTopControls('trendOrders')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopOrdMonth}><XAxis dataKey="month"/><YAxis/><Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Line type="monotone" dataKey="orders" stroke="#84cc16"/></LineChart></ResponsiveContainer></div></section>
+        <section className="card p-3 min-h-[34rem] flex flex-col"><h3 className="font-semibold mb-2">Top Items: Revenue by Time</h3>{renderTopControls('trendRevenue')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopRevMonth}><XAxis dataKey="fy"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Line type="monotone" dataKey="revenue" stroke="#06b6d4"/></LineChart></ResponsiveContainer></div></section>
+        <section className="card p-3 min-h-[34rem] flex flex-col"><h3 className="font-semibold mb-2">Top Items: Orders by Time</h3>{renderTopControls('trendOrders')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopOrdMonth}><XAxis dataKey="fy"/><YAxis/><Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Line type="monotone" dataKey="orders" stroke="#84cc16"/></LineChart></ResponsiveContainer></div></section>
         <section className="card p-3 min-h-[34rem] flex flex-col"><h3 className="font-semibold mb-2">Top Items: Total Revenue</h3>{renderTopControls('totalRevenue')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><BarChart data={chartTopRevTotals}><XAxis dataKey="part_num"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Bar dataKey="revenue" fill="#0ea5e9"/></BarChart></ResponsiveContainer></div></section>
         <section className="card p-3 min-h-[34rem] flex flex-col"><h3 className="font-semibold mb-2">Top Items: Total Orders</h3>{renderTopControls('totalOrders')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><BarChart data={chartTopOrdTotals}><XAxis dataKey="part_num"/><YAxis/><Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Bar dataKey="orders" fill="#65a30d"/></BarChart></ResponsiveContainer></div></section>
-        <section className="card p-3 min-h-[34rem] flex flex-col"><h3 className="font-semibold mb-2">Top Items: Revenue by Time (multiple curves)</h3>{renderTopControls('multiRevenue')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopRevMulti}><XAxis dataKey="month"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />{multiRevSeries.map((p, i) => <Line key={p} type="monotone" dataKey={(row) => row.part_num === p ? row.revenue : null} name={p} stroke={["#0ea5e9", "#22c55e", "#f97316", "#a855f7", "#06b6d4", "#f43f5e", "#eab308", "#10b981"][i % 8]} connectNulls />)}</LineChart></ResponsiveContainer></div></section>
-        <section className="card p-3 min-h-[34rem] flex flex-col"><h3 className="font-semibold mb-2">Top Items: Orders by Time (multiple curves)</h3>{renderTopControls('multiOrders')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopOrdMulti}><XAxis dataKey="month"/><YAxis/><Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />{multiOrdSeries.map((p, i) => <Line key={p} type="monotone" dataKey={(row) => row.part_num === p ? row.orders : null} name={p} stroke={["#84cc16", "#14b8a6", "#f59e0b", "#8b5cf6", "#f43f5e", "#0ea5e9", "#22c55e", "#eab308"][i % 8]} connectNulls />)}</LineChart></ResponsiveContainer></div></section>
+        <section className="card p-3 min-h-[34rem] flex flex-col"><h3 className="font-semibold mb-2">Top Items: Revenue by Time (multiple curves)</h3>{renderTopControls('multiRevenue')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopRevMulti}><XAxis dataKey="fy"/><YAxis/><Tooltip shared formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />{multiRevSeries.map((p, i) => <Line key={p} type="monotone" dataKey={p} name={p} stroke={["#0ea5e9", "#22c55e", "#f97316", "#a855f7", "#06b6d4", "#f43f5e", "#eab308", "#10b981"][i % 8]} connectNulls dot />)}</LineChart></ResponsiveContainer></div></section>
+        <section className="card p-3 min-h-[34rem] flex flex-col"><h3 className="font-semibold mb-2">Top Items: Orders by Time (multiple curves)</h3>{renderTopControls('multiOrders')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopOrdMulti}><XAxis dataKey="fy"/><YAxis/><Tooltip shared contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />{multiOrdSeries.map((p, i) => <Line key={p} type="monotone" dataKey={p} name={p} stroke={["#84cc16", "#14b8a6", "#f59e0b", "#8b5cf6", "#f43f5e", "#0ea5e9", "#22c55e", "#eab308"][i % 8]} connectNulls dot />)}</LineChart></ResponsiveContainer></div></section>
       </div>
     </section>
 
