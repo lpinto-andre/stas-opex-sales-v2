@@ -2,8 +2,11 @@ import { useEffect, useState } from 'react';
 import { getDistinctOptions } from '@/data/queries';
 import { useAppStore } from '@/state/store';
 
+const EMPTY: string[] = [];
+
 function MultiFilter({ label, keyName, column }: { label: string; keyName: 'customers' | 'countries' | 'territories' | 'prodGroups' | 'classes' | 'parts'; column: string }) {
-  const selected = useAppStore((s) => s.filters[keyName] ?? []);
+  const filters = useAppStore((s) => s.filters);
+  const selected = (filters[keyName] as string[] | undefined) ?? EMPTY;
   const setFilters = useAppStore((s) => s.setFilters);
   const [options, setOptions] = useState<string[]>([]);
   const [search, setSearch] = useState('');
