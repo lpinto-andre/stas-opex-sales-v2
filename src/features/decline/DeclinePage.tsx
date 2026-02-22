@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { useAppStore } from '@/state/store';
 import { getCustomerOptions, getDistinctOptions, getPartYearMetrics, getPartsOrdersByFY, getPartsPriorityRows, getPartsRevenueByFY, type Filters } from '@/data/queries';
 
 type Option = { value: string; label: string };
@@ -60,11 +61,14 @@ const labelClasses: Record<RowLabel, string> = {
 const labelOptions: Option[] = ['Growing', 'Stable', 'Declining', 'New', 'Inactive'].map((l) => ({ value: l, label: l }));
 
 export function DeclinePage() {
-  const [k, setK] = useState(2);
-  const [m, setM] = useState(3);
-  const [periodMode, setPeriodMode] = useState<PeriodMode>('all');
-  const [fromMonth, setFromMonth] = useState('');
-  const [toMonth, setToMonth] = useState('');
+  const saved = useAppStore((s) => (s.pageState['decline'] as Record<string, unknown>) ?? {});
+  const setPageState = useAppStore((s) => s.setPageState);
+
+  const [k, setK] = useState(Number(saved.k ?? 2));
+  const [m, setM] = useState(Number(saved.m ?? 3));
+  const [periodMode, setPeriodMode] = useState<PeriodMode>((saved.periodMode as PeriodMode) ?? 'all');
+  const [fromMonth, setFromMonth] = useState(String(saved.fromMonth ?? ''));
+  const [toMonth, setToMonth] = useState(String(saved.toMonth ?? ''));
 
   const [rankBy, setRankBy] = useState<RankMetric>('revenue');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -74,16 +78,16 @@ export function DeclinePage() {
   const [maxOrdRatio, setMaxOrdRatio] = useState('');
   const [logic, setLogic] = useState<'AND' | 'OR'>('AND');
 
-  const [searchText, setSearchText] = useState('');
+  const [searchText, setSearchText] = useState(String(saved.searchText ?? ''));
   const [customerSearch, setCustomerSearch] = useState('');
   const [countrySearch, setCountrySearch] = useState('');
   const [partSearch, setPartSearch] = useState('');
   const [groupSearch, setGroupSearch] = useState('');
 
-  const [selectedCustomers, setSelectedCustomers] = useState<string[]>([]);
-  const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
-  const [selectedParts, setSelectedParts] = useState<string[]>([]);
-  const [selectedProdGroups, setSelectedProdGroups] = useState<string[]>([]);
+  const [selectedCustomers, setSelectedCustomers] = useState<string[]>((saved.selectedCustomers as string[]) ?? []);
+  const [selectedCountries, setSelectedCountries] = useState<string[]>((saved.selectedCountries as string[]) ?? []);
+  const [selectedParts, setSelectedParts] = useState<string[]>((saved.selectedParts as string[]) ?? []);
+  const [selectedProdGroups, setSelectedProdGroups] = useState<string[]>((saved.selectedProdGroups as string[]) ?? []);
   const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
 
   const [customerOptions, setCustomerOptions] = useState<Option[]>([]);
@@ -199,6 +203,11 @@ export function DeclinePage() {
     if (kind === 'prodGroups') setSelectedProdGroups((x) => x.filter((v) => v !== value));
     if (kind === 'labels') setSelectedLabels((x) => x.filter((v) => v !== value));
   };
+
+
+  useEffect(() => {
+    setPageState('decline', { k, m, periodMode, fromMonth, toMonth, searchText, selectedCustomers, selectedCountries, selectedParts, selectedProdGroups });
+  }, [k, m, periodMode, fromMonth, toMonth, searchText, selectedCustomers, selectedCountries, selectedParts, selectedProdGroups, setPageState]);
 
   return <div>
     <PageHeader title="Labels Model" subtitle="Classify parts as Declining/Stable/Growing/New/Inactive." actions={<div className="grid grid-cols-5 gap-2 items-end">

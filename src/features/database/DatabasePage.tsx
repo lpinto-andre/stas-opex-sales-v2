@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { useAppStore } from '@/state/store';
 import { getCustomerOptions, getDistinctOptions, getPartsOrdersByFY, getPartsRevenueByFY, getPartsPriorityRows, type Filters } from '@/data/queries';
 
 type Metric = 'revenue' | 'orders' | 'profit' | 'profit_pct';
@@ -63,23 +64,26 @@ const fyLabel = (fy: number) => {
 };
 
 export function DatabasePage() {
-  const [metric, setMetric] = useState<Metric>('revenue');
-  const [dir, setDir] = useState<SortDir>('desc');
-  const [topN, setTopN] = useState(100);
-  const [periodMode, setPeriodMode] = useState<PeriodMode>('all');
-  const [fromMonth, setFromMonth] = useState('');
-  const [toMonth, setToMonth] = useState('');
-  const [searchText, setSearchText] = useState('');
+  const saved = useAppStore((s) => (s.pageState['database'] as Record<string, unknown>) ?? {});
+  const setPageState = useAppStore((s) => s.setPageState);
+
+  const [metric, setMetric] = useState<Metric>((saved.metric as Metric) ?? 'revenue');
+  const [dir, setDir] = useState<SortDir>((saved.dir as SortDir) ?? 'desc');
+  const [topN, setTopN] = useState(Number(saved.topN ?? 100));
+  const [periodMode, setPeriodMode] = useState<PeriodMode>((saved.periodMode as PeriodMode) ?? 'all');
+  const [fromMonth, setFromMonth] = useState(String(saved.fromMonth ?? ''));
+  const [toMonth, setToMonth] = useState(String(saved.toMonth ?? ''));
+  const [searchText, setSearchText] = useState(String(saved.searchText ?? ''));
 
   const [customerSearch, setCustomerSearch] = useState('');
   const [countrySearch, setCountrySearch] = useState('');
   const [partSearch, setPartSearch] = useState('');
   const [groupSearch, setGroupSearch] = useState('');
 
-  const [selectedCustomers, setSelectedCustomers] = useState<string[]>([]);
-  const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
-  const [selectedParts, setSelectedParts] = useState<string[]>([]);
-  const [selectedProdGroups, setSelectedProdGroups] = useState<string[]>([]);
+  const [selectedCustomers, setSelectedCustomers] = useState<string[]>((saved.selectedCustomers as string[]) ?? []);
+  const [selectedCountries, setSelectedCountries] = useState<string[]>((saved.selectedCountries as string[]) ?? []);
+  const [selectedParts, setSelectedParts] = useState<string[]>((saved.selectedParts as string[]) ?? []);
+  const [selectedProdGroups, setSelectedProdGroups] = useState<string[]>((saved.selectedProdGroups as string[]) ?? []);
 
   const [customerOptions, setCustomerOptions] = useState<Option[]>([]);
   const [countryOptions, setCountryOptions] = useState<Option[]>([]);
@@ -179,6 +183,11 @@ export function DatabasePage() {
     ...selectedParts.map((v) => ({ k: 'parts' as const, v })),
     ...selectedProdGroups.map((v) => ({ k: 'prodGroups' as const, v }))
   ];
+
+
+  useEffect(() => {
+    setPageState('database', { metric, dir, topN, periodMode, fromMonth, toMonth, searchText, selectedCustomers, selectedCountries, selectedParts, selectedProdGroups });
+  }, [metric, dir, topN, periodMode, fromMonth, toMonth, searchText, selectedCustomers, selectedCountries, selectedParts, selectedProdGroups, setPageState]);
 
   return <div>
     <PageHeader title="Database" subtitle="Full parts database with combinable Excel-style filters." actions={<div className="grid grid-cols-2 lg:grid-cols-4 gap-2 items-end">

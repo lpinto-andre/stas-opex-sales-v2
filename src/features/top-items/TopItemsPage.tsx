@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { getCustomerOptions, getDistinctOptions, getPartYearMetrics, getPartsOrdersByFY, getPartsPriorityRows, getPartsRevenueByFY, type Filters } from '@/data/queries';
+import { useAppStore } from '@/state/store';
 
 type Option = { value: string; label: string };
 type PeriodMode = 'all' | 'after' | 'before' | 'between';
@@ -51,30 +52,33 @@ function MultiPick({ label, options, values, onChange }: { label: string; option
 }
 
 export function TopItemsPage() {
-  const [topN, setTopN] = useState(50);
-  const [k, setK] = useState(2);
-  const [m, setM] = useState(3);
-  const [periodMode, setPeriodMode] = useState<PeriodMode>('all');
-  const [fromMonth, setFromMonth] = useState('');
-  const [toMonth, setToMonth] = useState('');
-  const [searchText, setSearchText] = useState('');
+  const saved = useAppStore((s) => (s.pageState['top-items'] as Record<string, unknown>) ?? {});
+  const setPageState = useAppStore((s) => s.setPageState);
+  const setTopItemsSelection = useAppStore((s) => s.setTopItemsSelection);
+  const [topN, setTopN] = useState(Number(saved.topN ?? 50));
+  const [k, setK] = useState(Number(saved.k ?? 2));
+  const [m, setM] = useState(Number(saved.m ?? 3));
+  const [periodMode, setPeriodMode] = useState<PeriodMode>((saved.periodMode as PeriodMode) ?? 'all');
+  const [fromMonth, setFromMonth] = useState(String(saved.fromMonth ?? ''));
+  const [toMonth, setToMonth] = useState(String(saved.toMonth ?? ''));
+  const [searchText, setSearchText] = useState(String(saved.searchText ?? ''));
 
   const [customerSearch, setCustomerSearch] = useState('');
   const [countrySearch, setCountrySearch] = useState('');
   const [partSearch, setPartSearch] = useState('');
   const [groupSearch, setGroupSearch] = useState('');
 
-  const [selectedCustomers, setSelectedCustomers] = useState<string[]>([]);
-  const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
-  const [selectedParts, setSelectedParts] = useState<string[]>([]);
-  const [selectedProdGroups, setSelectedProdGroups] = useState<string[]>([]);
+  const [selectedCustomers, setSelectedCustomers] = useState<string[]>((saved.selectedCustomers as string[]) ?? []);
+  const [selectedCountries, setSelectedCountries] = useState<string[]>((saved.selectedCountries as string[]) ?? []);
+  const [selectedParts, setSelectedParts] = useState<string[]>((saved.selectedParts as string[]) ?? []);
+  const [selectedProdGroups, setSelectedProdGroups] = useState<string[]>((saved.selectedProdGroups as string[]) ?? []);
 
   const [customerOptions, setCustomerOptions] = useState<Option[]>([]);
   const [countryOptions, setCountryOptions] = useState<Option[]>([]);
   const [partOptions, setPartOptions] = useState<Option[]>([]);
   const [groupOptions, setGroupOptions] = useState<Option[]>([]);
 
-  const [weights, setWeights] = useState<Weights>({ revenue: 30, orders: 20, profit: 20, margin: 10, trend: 10, active: 10 });
+  const [weights, setWeights] = useState<Weights>((saved.weights as Weights) ?? { revenue: 30, orders: 20, profit: 20, margin: 10, trend: 10, active: 10 });
   const [rows, setRows] = useState<ScoreRow[]>([]);
   const [fyColumns, setFyColumns] = useState<number[]>([]);
 
@@ -254,6 +258,15 @@ export function TopItemsPage() {
     if (kind === 'parts') setSelectedParts((x) => x.filter((v) => v !== value));
     if (kind === 'prodGroups') setSelectedProdGroups((x) => x.filter((v) => v !== value));
   };
+
+
+  useEffect(() => {
+    setPageState('top-items', { topN, k, m, periodMode, fromMonth, toMonth, searchText, selectedCustomers, selectedCountries, selectedParts, selectedProdGroups, weights });
+  }, [topN, k, m, periodMode, fromMonth, toMonth, searchText, selectedCustomers, selectedCountries, selectedParts, selectedProdGroups, weights, setPageState]);
+
+  useEffect(() => {
+    setTopItemsSelection({ partNums: rows.map((r) => r.part_num), topN });
+  }, [rows, topN, setTopItemsSelection]);
 
   return <div>
     <PageHeader title="Top Items Scoring Model" subtitle="Weighted deterministic model for top parts." actions={<div className="grid grid-cols-4 gap-2 items-end">

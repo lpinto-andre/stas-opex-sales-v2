@@ -41,6 +41,16 @@ export async function getKPIs(filters: Filters) {
   return rows[0];
 }
 
+
+export const getOrdersByMonth = (filters: Filters) => queryRows<{ month: string; orders: number }>(`SELECT invoice_month AS month, COUNT(DISTINCT order_line_id) AS orders FROM pdr_enriched ${buildWhereClause(filters, 'order_line_first_invoice_date')} GROUP BY 1 ORDER BY 1`);
+export const getOrdersByProdGroup = (filters: Filters) => queryRows<{ prod_group: string; orders: number }>(`SELECT prod_group, COUNT(DISTINCT order_line_id) AS orders FROM pdr_enriched ${buildWhereClause(filters, 'order_line_first_invoice_date')} GROUP BY 1 ORDER BY 2 DESC LIMIT 10`);
+
+const withParts = (filters: Filters, partNums: string[]): Filters => ({ ...filters, parts: partNums.length ? partNums : [''] });
+
+export const getRevenueByMonthForParts = (filters: Filters, partNums: string[]) => queryRows<{ month: string; revenue: number }>(`SELECT invoice_month AS month, SUM(amount) AS revenue FROM pdr_enriched ${buildWhereClause(withParts(filters, partNums))} GROUP BY 1 ORDER BY 1`);
+export const getOrdersByMonthForParts = (filters: Filters, partNums: string[]) => queryRows<{ month: string; orders: number }>(`SELECT invoice_month AS month, COUNT(DISTINCT order_line_id) AS orders FROM pdr_enriched ${buildWhereClause(withParts(filters, partNums), 'order_line_first_invoice_date')} GROUP BY 1 ORDER BY 1`);
+export const getRevenueTotalsForParts = (filters: Filters, partNums: string[]) => queryRows<{ part_num: string; revenue: number }>(`SELECT part_num, SUM(amount) AS revenue FROM pdr_enriched ${buildWhereClause(withParts(filters, partNums))} GROUP BY 1 ORDER BY 2 DESC`);
+export const getOrderTotalsForParts = (filters: Filters, partNums: string[]) => queryRows<{ part_num: string; orders: number }>(`SELECT part_num, COUNT(DISTINCT order_line_id) AS orders FROM pdr_enriched ${buildWhereClause(withParts(filters, partNums), 'order_line_first_invoice_date')} GROUP BY 1 ORDER BY 2 DESC`);
 export const getRevenueByMonth = (filters: Filters) => queryRows<{ month: string; revenue: number }>(`SELECT invoice_month AS month, SUM(amount) AS revenue FROM pdr_enriched ${buildWhereClause(filters)} GROUP BY 1 ORDER BY 1`);
 export const getRevenueByFY = (filters: Filters) => queryRows<{ fy: number; revenue: number }>(`SELECT invoice_fy AS fy, SUM(amount) AS revenue FROM pdr_enriched ${buildWhereClause(filters)} GROUP BY 1 ORDER BY 1`);
 export const getOrdersByFY = (filters: Filters) => queryRows<{ fy: number; orders: number }>(`SELECT order_line_fy AS fy, COUNT(DISTINCT order_line_id) AS orders FROM pdr_enriched ${buildWhereClause(filters, 'order_line_first_invoice_date')} GROUP BY 1 ORDER BY 1`);

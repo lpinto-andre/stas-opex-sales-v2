@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { useAppStore } from '@/state/store';
 import { getCustomerOptions, getDistinctOptions, getRanking, type Filters } from '@/data/queries';
 
 type Entity = 'customers' | 'prodgroup' | 'class' | 'country' | 'territory';
@@ -28,24 +29,27 @@ function MultiPick({ label, options, values, onChange }: { label: string; option
 }
 
 export function RankingsPage() {
-  const [entity, setEntity] = useState<Entity>('customers');
-  const [metric, setMetric] = useState<Metric>('revenue');
-  const [dir, setDir] = useState<SortDir>('desc');
-  const [topN, setTopN] = useState(100);
-  const [periodMode, setPeriodMode] = useState<PeriodMode>('all');
-  const [fromMonth, setFromMonth] = useState('');
-  const [toMonth, setToMonth] = useState('');
-  const [searchText, setSearchText] = useState('');
+  const saved = useAppStore((s) => (s.pageState['rankings'] as Record<string, unknown>) ?? {});
+  const setPageState = useAppStore((s) => s.setPageState);
+
+  const [entity, setEntity] = useState<Entity>((saved.entity as Entity) ?? 'customers');
+  const [metric, setMetric] = useState<Metric>((saved.metric as Metric) ?? 'revenue');
+  const [dir, setDir] = useState<SortDir>((saved.dir as SortDir) ?? 'desc');
+  const [topN, setTopN] = useState(Number(saved.topN ?? 100));
+  const [periodMode, setPeriodMode] = useState<PeriodMode>((saved.periodMode as PeriodMode) ?? 'all');
+  const [fromMonth, setFromMonth] = useState(String(saved.fromMonth ?? ''));
+  const [toMonth, setToMonth] = useState(String(saved.toMonth ?? ''));
+  const [searchText, setSearchText] = useState(String(saved.searchText ?? ''));
 
   const [customerSearch, setCustomerSearch] = useState('');
   const [countrySearch, setCountrySearch] = useState('');
   const [partSearch, setPartSearch] = useState('');
   const [groupSearch, setGroupSearch] = useState('');
 
-  const [selectedCustomers, setSelectedCustomers] = useState<string[]>([]);
-  const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
-  const [selectedParts, setSelectedParts] = useState<string[]>([]);
-  const [selectedProdGroups, setSelectedProdGroups] = useState<string[]>([]);
+  const [selectedCustomers, setSelectedCustomers] = useState<string[]>((saved.selectedCustomers as string[]) ?? []);
+  const [selectedCountries, setSelectedCountries] = useState<string[]>((saved.selectedCountries as string[]) ?? []);
+  const [selectedParts, setSelectedParts] = useState<string[]>((saved.selectedParts as string[]) ?? []);
+  const [selectedProdGroups, setSelectedProdGroups] = useState<string[]>((saved.selectedProdGroups as string[]) ?? []);
 
   const [customerOptions, setCustomerOptions] = useState<Option[]>([]);
   const [countryOptions, setCountryOptions] = useState<Option[]>([]);
@@ -100,6 +104,11 @@ export function RankingsPage() {
     if (kind === 'parts') setSelectedParts((x) => x.filter((v) => v !== value));
     if (kind === 'prodGroups') setSelectedProdGroups((x) => x.filter((v) => v !== value));
   };
+
+
+  useEffect(() => {
+    setPageState('rankings', { entity, metric, dir, topN, periodMode, fromMonth, toMonth, searchText, selectedCustomers, selectedCountries, selectedParts, selectedProdGroups });
+  }, [entity, metric, dir, topN, periodMode, fromMonth, toMonth, searchText, selectedCustomers, selectedCountries, selectedParts, selectedProdGroups, setPageState]);
 
   return <div>
     <PageHeader title="Group By" subtitle="Leaderboard by selected business dimension." actions={<div className="grid grid-cols-5 gap-2 items-end">
