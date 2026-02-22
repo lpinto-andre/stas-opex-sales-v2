@@ -80,6 +80,7 @@ export function TopItemsPage() {
 
   const [weights, setWeights] = useState<Weights>((saved.weights as Weights) ?? { revenue: 30, orders: 20, profit: 20, margin: 10, trend: 10, active: 10 });
   const [rows, setRows] = useState<ScoreRow[]>([]);
+  const [rankedPartNums, setRankedPartNums] = useState<string[]>([]);
   const [fyColumns, setFyColumns] = useState<number[]>([]);
 
   useEffect(() => { getCustomerOptions(customerSearch, 150).then((r) => setCustomerOptions(r.map((x) => ({ value: x.value, label: x.label })))); }, [customerSearch]);
@@ -223,16 +224,17 @@ export function TopItemsPage() {
       });
 
       const years = [...yearsSet].sort((a, b) => a - b);
-      const sorted: ScoreRow[] = [...rowsMap.values()]
-        .sort((a, b) => b.final_score - a.final_score)
+      const sortedAll: ScoreRow[] = [...rowsMap.values()].sort((a, b) => b.final_score - a.final_score);
+      const topRows: ScoreRow[] = sortedAll
         .slice(0, topN)
         .map((row, i) => ({ ...row, rank: i + 1 }));
-      sorted.forEach((r) => years.forEach((fy) => {
+      topRows.forEach((r) => years.forEach((fy) => {
         if (r[`revenue_fy_${fy}`] == null) r[`revenue_fy_${fy}`] = 0;
         if (r[`orders_fy_${fy}`] == null) r[`orders_fy_${fy}`] = 0;
       }));
+      setRankedPartNums(sortedAll.map((r) => r.part_num));
       setFyColumns(years);
-      setRows(sorted);
+      setRows(topRows);
     });
   }, [filters, k, m, topN, weights]);
 
@@ -265,8 +267,8 @@ export function TopItemsPage() {
   }, [topN, k, m, periodMode, fromMonth, toMonth, searchText, selectedCustomers, selectedCountries, selectedParts, selectedProdGroups, weights, setPageState]);
 
   useEffect(() => {
-    setTopItemsSelection({ partNums: rows.map((r) => r.part_num), topN });
-  }, [rows, topN, setTopItemsSelection]);
+    setTopItemsSelection({ partNums: rankedPartNums, topN });
+  }, [rankedPartNums, topN, setTopItemsSelection]);
 
   return <div>
     <PageHeader title="Top Items Scoring Model" subtitle="Weighted deterministic model for top parts." actions={<div className="grid grid-cols-4 gap-2 items-end">

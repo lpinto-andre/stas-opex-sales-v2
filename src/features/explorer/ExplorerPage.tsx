@@ -239,15 +239,18 @@ export function ExplorerPage() {
 
   const renderTopControls = (key: keyof typeof topFilters) => {
     const current = topFilters[key];
-    return <div className="grid md:grid-cols-4 gap-2 mb-2">
+    return <div className="grid md:grid-cols-4 gap-2 mb-3">
       <label className="text-xs text-[var(--text-muted)]">From YYYY-MM
         <input type="text" value={current.fromMonth} onChange={(e) => { const n = safeMonthInput(e.target.value); if (n !== null) setTopFilter(key, { fromMonth: n }); }} className="card w-full px-2 py-1 mt-1" />
       </label>
       <label className="text-xs text-[var(--text-muted)]">To YYYY-MM
         <input type="text" value={current.toMonth} onChange={(e) => { const n = safeMonthInput(e.target.value); if (n !== null) setTopFilter(key, { toMonth: n }); }} className="card w-full px-2 py-1 mt-1" />
       </label>
-      <div className="md:col-span-2">
-        <MultiPick label="Top Items (from model)" options={allTopParts.map((p) => ({ value: p, label: p }))} values={current.parts} onChange={(next) => setTopFilter(key, { parts: next })} />
+      <div className="md:col-span-2 text-xs text-[var(--text-muted)]">
+        <div className="mb-1">Top Items (from model)</div>
+        <div className="card h-20 overflow-auto p-2">
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1">{allTopParts.map((p) => <label key={`${key}-${p}`} className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={current.parts.includes(p)} onChange={() => setTopFilter(key, { parts: current.parts.includes(p) ? current.parts.filter((x) => x !== p) : [...current.parts, p] })} /><span className="truncate">{p}</span></label>)}</div>
+        </div>
       </div>
     </div>;
   };
@@ -298,13 +301,13 @@ export function ExplorerPage() {
 
     <section className="mb-4">
       <h3 className="font-semibold mb-2">Top Items Graphics</h3>
-      <div className="grid md:grid-cols-2 gap-4">
-        <section className="card p-3 h-[26rem]"><h3 className="font-semibold mb-2">Top Items: Revenue by Time</h3>{renderTopControls('trendRevenue')}<ResponsiveContainer><LineChart data={chartTopRevMonth}><XAxis dataKey="month"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Line type="monotone" dataKey="revenue" stroke="#06b6d4"/></LineChart></ResponsiveContainer></section>
-        <section className="card p-3 h-[26rem]"><h3 className="font-semibold mb-2">Top Items: Orders by Time</h3>{renderTopControls('trendOrders')}<ResponsiveContainer><LineChart data={chartTopOrdMonth}><XAxis dataKey="month"/><YAxis/><Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Line type="monotone" dataKey="orders" stroke="#84cc16"/></LineChart></ResponsiveContainer></section>
-        <section className="card p-3 h-[26rem]"><h3 className="font-semibold mb-2">Top Items: Total Revenue</h3>{renderTopControls('totalRevenue')}<ResponsiveContainer><BarChart data={chartTopRevTotals}><XAxis dataKey="part_num"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Bar dataKey="revenue" fill="#0ea5e9"/></BarChart></ResponsiveContainer></section>
-        <section className="card p-3 h-[26rem]"><h3 className="font-semibold mb-2">Top Items: Total Orders</h3>{renderTopControls('totalOrders')}<ResponsiveContainer><BarChart data={chartTopOrdTotals}><XAxis dataKey="part_num"/><YAxis/><Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Bar dataKey="orders" fill="#65a30d"/></BarChart></ResponsiveContainer></section>
-        <section className="card p-3 h-[26rem]"><h3 className="font-semibold mb-2">Top Items: Revenue by Time (multiple curves)</h3>{renderTopControls('multiRevenue')}<ResponsiveContainer><LineChart data={chartTopRevMulti}><XAxis dataKey="month"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />{multiRevSeries.map((p, i) => <Line key={p} type="monotone" dataKey={(row) => row.part_num === p ? row.revenue : null} name={p} stroke={["#0ea5e9", "#22c55e", "#f97316", "#a855f7", "#06b6d4", "#f43f5e", "#eab308", "#10b981"][i % 8]} connectNulls />)}</LineChart></ResponsiveContainer></section>
-        <section className="card p-3 h-[26rem]"><h3 className="font-semibold mb-2">Top Items: Orders by Time (multiple curves)</h3>{renderTopControls('multiOrders')}<ResponsiveContainer><LineChart data={chartTopOrdMulti}><XAxis dataKey="month"/><YAxis/><Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />{multiOrdSeries.map((p, i) => <Line key={p} type="monotone" dataKey={(row) => row.part_num === p ? row.orders : null} name={p} stroke={["#84cc16", "#14b8a6", "#f59e0b", "#8b5cf6", "#f43f5e", "#0ea5e9", "#22c55e", "#eab308"][i % 8]} connectNulls />)}</LineChart></ResponsiveContainer></section>
+      <div className="grid xl:grid-cols-2 gap-4">
+        <section className="card p-3 min-h-[34rem] flex flex-col"><h3 className="font-semibold mb-2">Top Items: Revenue by Time</h3>{renderTopControls('trendRevenue')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopRevMonth}><XAxis dataKey="month"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Line type="monotone" dataKey="revenue" stroke="#06b6d4"/></LineChart></ResponsiveContainer></div></section>
+        <section className="card p-3 min-h-[34rem] flex flex-col"><h3 className="font-semibold mb-2">Top Items: Orders by Time</h3>{renderTopControls('trendOrders')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopOrdMonth}><XAxis dataKey="month"/><YAxis/><Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Line type="monotone" dataKey="orders" stroke="#84cc16"/></LineChart></ResponsiveContainer></div></section>
+        <section className="card p-3 min-h-[34rem] flex flex-col"><h3 className="font-semibold mb-2">Top Items: Total Revenue</h3>{renderTopControls('totalRevenue')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><BarChart data={chartTopRevTotals}><XAxis dataKey="part_num"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Bar dataKey="revenue" fill="#0ea5e9"/></BarChart></ResponsiveContainer></div></section>
+        <section className="card p-3 min-h-[34rem] flex flex-col"><h3 className="font-semibold mb-2">Top Items: Total Orders</h3>{renderTopControls('totalOrders')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><BarChart data={chartTopOrdTotals}><XAxis dataKey="part_num"/><YAxis/><Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Bar dataKey="orders" fill="#65a30d"/></BarChart></ResponsiveContainer></div></section>
+        <section className="card p-3 min-h-[34rem] flex flex-col"><h3 className="font-semibold mb-2">Top Items: Revenue by Time (multiple curves)</h3>{renderTopControls('multiRevenue')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopRevMulti}><XAxis dataKey="month"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />{multiRevSeries.map((p, i) => <Line key={p} type="monotone" dataKey={(row) => row.part_num === p ? row.revenue : null} name={p} stroke={["#0ea5e9", "#22c55e", "#f97316", "#a855f7", "#06b6d4", "#f43f5e", "#eab308", "#10b981"][i % 8]} connectNulls />)}</LineChart></ResponsiveContainer></div></section>
+        <section className="card p-3 min-h-[34rem] flex flex-col"><h3 className="font-semibold mb-2">Top Items: Orders by Time (multiple curves)</h3>{renderTopControls('multiOrders')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopOrdMulti}><XAxis dataKey="month"/><YAxis/><Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />{multiOrdSeries.map((p, i) => <Line key={p} type="monotone" dataKey={(row) => row.part_num === p ? row.orders : null} name={p} stroke={["#84cc16", "#14b8a6", "#f59e0b", "#8b5cf6", "#f43f5e", "#0ea5e9", "#22c55e", "#eab308"][i % 8]} connectNulls />)}</LineChart></ResponsiveContainer></div></section>
       </div>
     </section>
 
