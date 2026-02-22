@@ -12,7 +12,9 @@ function MultiFilter({ label, keyName, column }: { label: string; keyName: 'cust
   const [search, setSearch] = useState('');
 
   useEffect(() => {
-    getDistinctOptions(column, search, 80).then((rows) => setOptions(rows.map((r) => r.value).filter(Boolean)));
+    getDistinctOptions(column, search, 80)
+      .then((rows) => setOptions(rows.map((r) => r.value).filter(Boolean)))
+      .catch(() => setOptions([]));
   }, [column, search]);
 
   return <div className="space-y-1">

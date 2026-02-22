@@ -17,6 +17,7 @@ function toCsv(rows: Record<string, unknown>[]) {
 export function ExplorerPage() {
   const filters = useAppStore((s) => s.filters);
   const resetFilters = useAppStore((s) => s.resetFilters);
+  const datasetLoaded = useAppStore((s) => s.datasetLoaded);
 
   const [kpis, setKpis] = useState<Record<string, number>>({});
   const [revMonth, setRevMonth] = useState<Record<string, unknown>[]>([]);
@@ -24,15 +25,37 @@ export function ExplorerPage() {
   const [ordersFy, setOrdersFy] = useState<Record<string, unknown>[]>([]);
   const [revGroup, setRevGroup] = useState<Record<string, unknown>[]>([]);
   const [detailRows, setDetailRows] = useState<Record<string, unknown>[]>([]);
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
-    getKPIs(filters).then((r) => setKpis(r as unknown as Record<string, number>));
-    getRevenueByMonth(filters).then((r) => setRevMonth(r as unknown as Record<string, unknown>[]));
-    getRevenueByFY(filters).then((r) => setRevFy(r as unknown as Record<string, unknown>[]));
-    getOrdersByFY(filters).then((r) => setOrdersFy(r as unknown as Record<string, unknown>[]));
-    getRevenueByProdGroup(filters).then((r) => setRevGroup(r as unknown as Record<string, unknown>[]));
-    getDetailRows(filters, 600).then((r) => setDetailRows(r));
-  }, [filters]);
+    if (!datasetLoaded) return;
+    setLoadError('');
+    Promise.all([
+      getKPIs(filters),
+      getRevenueByMonth(filters),
+      getRevenueByFY(filters),
+      getOrdersByFY(filters),
+      getRevenueByProdGroup(filters),
+      getDetailRows(filters, 600)
+    ])
+      .then(([kpi, rm, rf, ofy, rg, details]) => {
+        setKpis(kpi as unknown as Record<string, number>);
+        setRevMonth(rm as unknown as Record<string, unknown>[]);
+        setRevFy(rf as unknown as Record<string, unknown>[]);
+        setOrdersFy(ofy as unknown as Record<string, unknown>[]);
+        setRevGroup(rg as unknown as Record<string, unknown>[]);
+        setDetailRows(details);
+      })
+      .catch((error) => {
+        setLoadError(error instanceof Error ? error.message : 'Failed to query dataset.');
+        setKpis({});
+        setRevMonth([]);
+        setRevFy([]);
+        setOrdersFy([]);
+        setRevGroup([]);
+        setDetailRows([]);
+      });
+  }, [filters, datasetLoaded]);
 
   const marginPct = useMemo(() => {
     const revenue = Number(kpis.revenue ?? 0);
@@ -54,9 +77,11 @@ export function ExplorerPage() {
   };
 
   return <div>
-    <PageHeader title="Data Explorer" subtitle="Real-time DuckDB analytics across imported dataset." actions={<div className="flex gap-2"><button className="card px-3 py-2" onClick={exportRows}>Export CSV</button><button className="card px-3 py-2" onClick={resetFilters}>Reset filters</button></div>} />
+    <PageHeader title="Data Explorer" subtitle="Real-time DuckDB analytics across imported dataset." actions={<div className="flex gap-2"><button className="card px-3 py-2" onClick={exportRows} disabled={!datasetLoaded}>Export CSV</button><button className="card px-3 py-2" onClick={resetFilters}>Reset filters</button></div>} />
+    {!datasetLoaded && <section className="card p-4 mb-4"><h3 className="font-semibold">No dataset loaded</h3><p className="text-sm text-[var(--text-muted)] mt-1">Please import a dataset from Dataset Manager first.</p></section>}
+    {loadError && <section className="card p-4 mb-4 border-[var(--danger)]"><h3 className="font-semibold text-[var(--danger)]">Explorer query failed</h3><p className="text-sm mt-1">{loadError}</p></section>}
     <div className="grid lg:grid-cols-[320px_1fr] gap-4">
-      <FilterSidebar />
+      {datasetLoaded && <FilterSidebar />}
       <div>
         <FilterChipsBar chips={chips} onRemove={() => undefined} />
         <div className="grid md:grid-cols-4 gap-3 mb-4">
