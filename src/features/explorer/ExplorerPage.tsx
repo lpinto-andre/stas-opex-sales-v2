@@ -1,0 +1,225 @@
+import { useEffect, useMemo, useState } from 'react';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { KPIStatCard } from '@/components/ui/KPIStatCard';
+import { Bar, BarChart, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { getCustomerOptions, getDetailRows, getDistinctOptions, getKPIs, getOrdersByFY, getRevenueByFY, getRevenueByMonth, getRevenueByProdGroup, type Filters } from '@/data/queries';
+
+type Option = { value: string; label: string };
+type PeriodMode = 'all' | 'after' | 'before' | 'between';
+
+const currency = (value: number) => `$${Math.round(value).toLocaleString()}`;
+const pct = (value: number) => `${Math.round(value * 100)}%`;
+const isValidMonth = (m: string) => /^\d{4}-\d{2}$/.test(m);
+const safeMonthInput = (v: string) => (/^\d{0,4}(?:-\d{0,2})?$/.test(v) ? v : null);
+const monthStart = (m: string) => (isValidMonth(m) ? `${m}-01` : '');
+const monthEnd = (m: string) => {
+  if (!isValidMonth(m)) return '';
+  const [y, mo] = m.split('-').map(Number);
+  const d = new Date(y, mo, 0);
+  return `${y}-${String(mo).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+function MultiPick({ label, options, values, onChange }: { label: string; options: Option[]; values: string[]; onChange: (next: string[]) => void }) {
+  const toggle = (value: string) => onChange(values.includes(value) ? values.filter((v) => v !== value) : [...values, value]);
+  return <div className="text-xs text-[var(--text-muted)]"><div className="mb-1">{label}</div><div className="card h-28 overflow-auto p-2 space-y-1">{options.map((o) => <label key={o.value} className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={values.includes(o.value)} onChange={() => toggle(o.value)} /><span className="text-xs">{o.label}</span></label>)}</div></div>;
+}
+
+const tooltipStyle = { background: '#0f172a', border: '1px solid #334155', color: '#f8fafc' };
+const tooltipLabelStyle = { color: '#f8fafc', fontWeight: 600 };
+
+type ExplorerRow = {
+  invoice_date: string;
+  invoice_num: string;
+  order_num: string;
+  cust_id: string;
+  cust_name: string;
+  part_num: string;
+  line_desc_short: string;
+  prod_group: string;
+  country: string;
+  territory: string;
+  class_id: string;
+  amount: number;
+  cost: number;
+  profit: number;
+  margin_pct: number;
+  invoice_fy: number;
+  order_line_fy: number;
+};
+
+export function ExplorerPage() {
+  const [periodMode, setPeriodMode] = useState<PeriodMode>('all');
+  const [fromMonth, setFromMonth] = useState('');
+  const [toMonth, setToMonth] = useState('');
+  const [searchText, setSearchText] = useState('');
+
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [countrySearch, setCountrySearch] = useState('');
+  const [partSearch, setPartSearch] = useState('');
+  const [groupSearch, setGroupSearch] = useState('');
+
+  const [selectedCustomers, setSelectedCustomers] = useState<string[]>([]);
+  const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
+  const [selectedParts, setSelectedParts] = useState<string[]>([]);
+  const [selectedProdGroups, setSelectedProdGroups] = useState<string[]>([]);
+
+  const [customerOptions, setCustomerOptions] = useState<Option[]>([]);
+  const [countryOptions, setCountryOptions] = useState<Option[]>([]);
+  const [partOptions, setPartOptions] = useState<Option[]>([]);
+  const [groupOptions, setGroupOptions] = useState<Option[]>([]);
+
+  const [kpis, setKpis] = useState<Record<string, number>>({});
+  const [revMonth, setRevMonth] = useState<Record<string, unknown>[]>([]);
+  const [revFy, setRevFy] = useState<Record<string, unknown>[]>([]);
+  const [ordersFy, setOrdersFy] = useState<Record<string, unknown>[]>([]);
+  const [revGroup, setRevGroup] = useState<Record<string, unknown>[]>([]);
+  const [detailRows, setDetailRows] = useState<ExplorerRow[]>([]);
+
+  useEffect(() => { getCustomerOptions(customerSearch, 150).then((r) => setCustomerOptions(r.map((x) => ({ value: x.value, label: x.label })))); }, [customerSearch]);
+  useEffect(() => { getDistinctOptions('country', countrySearch, 150).then((r) => setCountryOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [countrySearch]);
+  useEffect(() => { getDistinctOptions('part_num', partSearch, 150).then((r) => setPartOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [partSearch]);
+  useEffect(() => { getDistinctOptions('prod_group', groupSearch, 150).then((r) => setGroupOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [groupSearch]);
+
+  const filters = useMemo<Filters>(() => {
+    const f: Filters = {
+      customers: selectedCustomers.length ? selectedCustomers : undefined,
+      countries: selectedCountries.length ? selectedCountries : undefined,
+      parts: selectedParts.length ? selectedParts : undefined,
+      prodGroups: selectedProdGroups.length ? selectedProdGroups : undefined,
+      searchLineDesc: searchText || undefined
+    };
+    if (periodMode === 'after') f.startDate = monthStart(fromMonth) || undefined;
+    if (periodMode === 'before') f.endDate = monthEnd(toMonth) || undefined;
+    if (periodMode === 'between') {
+      f.startDate = monthStart(fromMonth) || undefined;
+      f.endDate = monthEnd(toMonth) || undefined;
+    }
+    return f;
+  }, [selectedCustomers, selectedCountries, selectedParts, selectedProdGroups, searchText, periodMode, fromMonth, toMonth]);
+
+  useEffect(() => {
+    Promise.all([
+      getKPIs(filters),
+      getRevenueByMonth(filters),
+      getRevenueByFY(filters),
+      getOrdersByFY(filters),
+      getRevenueByProdGroup(filters),
+      getDetailRows(filters, 600)
+    ]).then(([kpi, rm, rf, ofy, rg, details]) => {
+      setKpis(kpi as unknown as Record<string, number>);
+      setRevMonth(rm as unknown as Record<string, unknown>[]);
+      setRevFy(rf as unknown as Record<string, unknown>[]);
+      setOrdersFy(ofy as unknown as Record<string, unknown>[]);
+      setRevGroup(rg as unknown as Record<string, unknown>[]);
+      setDetailRows((details as Record<string, unknown>[]).map((r) => ({
+        invoice_date: String(r.invoice_date ?? '').slice(0, 10),
+        invoice_num: String(r.invoice_num ?? ''),
+        order_num: String(r.order_num ?? ''),
+        cust_id: String(r.cust_id ?? ''),
+        cust_name: String(r.cust_name ?? ''),
+        part_num: String(r.part_num ?? ''),
+        line_desc_short: String(r.line_desc ?? '').slice(0, 25),
+        prod_group: String(r.prod_group ?? ''),
+        country: String(r.country ?? ''),
+        territory: String(r.territory ?? ''),
+        class_id: String(r.class_id ?? ''),
+        amount: Number(r.amount ?? 0),
+        cost: Number(r.cost ?? 0),
+        profit: Number(r.profit ?? 0),
+        margin_pct: Number(r.margin_pct ?? 0),
+        invoice_fy: Number(r.invoice_fy ?? 0),
+        order_line_fy: Number(r.order_line_fy ?? 0)
+      })));
+    });
+  }, [filters]);
+
+  const marginRatio = useMemo(() => {
+    const revenue = Number(kpis.revenue ?? 0);
+    const profit = Number(kpis.profit ?? 0);
+    return revenue > 0 ? (profit / revenue) : 0;
+  }, [kpis]);
+
+  const chips = [
+    ...selectedCustomers.map((v) => ({ k: 'customers' as const, v })),
+    ...selectedCountries.map((v) => ({ k: 'countries' as const, v })),
+    ...selectedParts.map((v) => ({ k: 'parts' as const, v })),
+    ...selectedProdGroups.map((v) => ({ k: 'prodGroups' as const, v }))
+  ];
+
+  const removeValue = (kind: 'customers' | 'countries' | 'parts' | 'prodGroups', value: string) => {
+    if (kind === 'customers') setSelectedCustomers((x) => x.filter((v) => v !== value));
+    if (kind === 'countries') setSelectedCountries((x) => x.filter((v) => v !== value));
+    if (kind === 'parts') setSelectedParts((x) => x.filter((v) => v !== value));
+    if (kind === 'prodGroups') setSelectedProdGroups((x) => x.filter((v) => v !== value));
+  };
+
+  const resetAll = () => {
+    setSelectedCustomers([]); setSelectedCountries([]); setSelectedParts([]); setSelectedProdGroups([]);
+    setSearchText(''); setPeriodMode('all'); setFromMonth(''); setToMonth('');
+  };
+
+  const exportRows = () => {
+    if (!detailRows.length) return;
+    const cols = Object.keys(detailRows[0]);
+    const csv = [cols.join(','), ...detailRows.map((r) => cols.map((c) => JSON.stringify((r as Record<string, unknown>)[c] ?? '')).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'explorer_detail.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const chartRevMonth = revMonth.map((r) => ({ month: String(r.month ?? ''), revenue: Math.round(Number(r.revenue ?? 0)) }));
+  const chartRevFy = revFy.map((r) => ({ fy: String(r.fy ?? ''), revenue: Math.round(Number(r.revenue ?? 0)) }));
+  const chartOrdersFy = ordersFy.map((r) => ({ fy: String(r.fy ?? ''), orders: Number(r.orders ?? 0) }));
+  const chartRevGroup = revGroup.map((r) => ({ prod_group: String(r.prod_group ?? ''), revenue: Math.round(Number(r.revenue ?? 0)) }));
+
+  return <div>
+    <PageHeader title="Data Explorer" subtitle="Real-time DuckDB analytics across imported dataset." actions={<div className="flex gap-2"><button className="card px-3 py-2" onClick={exportRows}>Export CSV</button><button className="card px-3 py-2" onClick={resetAll}>Reset filters</button></div>} />
+    <div className="grid lg:grid-cols-[320px_1fr] gap-4">
+      <aside className="card p-3 space-y-2">
+        <h3 className="font-semibold text-sm">Filters</h3>
+        <p className="text-xs text-[var(--text-muted)]">Tip: tick multiple values in each filter to combine selections freely.</p>
+        <div className="space-y-2"><input value={customerSearch} onChange={(e) => setCustomerSearch(e.target.value)} placeholder="Search customer" className="card w-full px-2 py-1 text-xs" /><MultiPick label="Customers" options={customerOptions} values={selectedCustomers} onChange={setSelectedCustomers} /></div>
+        <div className="space-y-2"><input value={countrySearch} onChange={(e) => setCountrySearch(e.target.value)} placeholder="Search country" className="card w-full px-2 py-1 text-xs" /><MultiPick label="Countries" options={countryOptions} values={selectedCountries} onChange={setSelectedCountries} /></div>
+        <div className="space-y-2"><input value={partSearch} onChange={(e) => setPartSearch(e.target.value)} placeholder="Search part" className="card w-full px-2 py-1 text-xs" /><MultiPick label="Parts" options={partOptions} values={selectedParts} onChange={setSelectedParts} /></div>
+        <div className="space-y-2"><input value={groupSearch} onChange={(e) => setGroupSearch(e.target.value)} placeholder="Search group" className="card w-full px-2 py-1 text-xs" /><MultiPick label="ProdGroups" options={groupOptions} values={selectedProdGroups} onChange={setSelectedProdGroups} /></div>
+        <label className="text-xs text-[var(--text-muted)]">LineDesc contains<input value={searchText} onChange={(e) => setSearchText(e.target.value)} className="card w-full px-2 py-1 mt-1" /></label>
+        <label className="text-xs text-[var(--text-muted)]">Period<select value={periodMode} onChange={(e) => setPeriodMode(e.target.value as PeriodMode)} className="card w-full px-2 py-1 mt-1"><option value="all">All</option><option value="after">After</option><option value="before">Before</option><option value="between">Between</option></select></label>
+        {(periodMode === 'after' || periodMode === 'between') && <label className="text-xs text-[var(--text-muted)]">From YYYY-MM<input type="text" value={fromMonth} onChange={(e) => { const n = safeMonthInput(e.target.value); if (n !== null) setFromMonth(n); }} className="card w-full px-2 py-1 mt-1" /></label>}
+        {(periodMode === 'before' || periodMode === 'between') && <label className="text-xs text-[var(--text-muted)]">To YYYY-MM<input type="text" value={toMonth} onChange={(e) => { const n = safeMonthInput(e.target.value); if (n !== null) setToMonth(n); }} className="card w-full px-2 py-1 mt-1" /></label>}
+      </aside>
+      <div>
+        {chips.length > 0 && <div className="flex flex-wrap gap-2 mb-4">{chips.map((c) => <button key={`${c.k}:${c.v}`} onClick={() => removeValue(c.k, c.v)} className="px-2 py-1 rounded-full bg-[var(--surface)] border border-[var(--border)] text-xs">{c.k}:{c.v} ×</button>)}</div>}
+        <div className="grid md:grid-cols-4 gap-3 mb-4">
+          <KPIStatCard label="Revenue" value={currency(Number(kpis.revenue ?? 0))} />
+          <KPIStatCard label="Profit" value={currency(Number(kpis.profit ?? 0))} />
+          <KPIStatCard label="Margin%" value={pct(marginRatio)} />
+          <KPIStatCard label="Orders" value={String(kpis.orders ?? 0)} />
+          <KPIStatCard label="Invoices" value={String(kpis.invoices ?? 0)} />
+          <KPIStatCard label="Customers" value={String(kpis.customers ?? 0)} />
+          <KPIStatCard label="Parts" value={String(kpis.parts ?? 0)} />
+        </div>
+        <div className="grid md:grid-cols-2 gap-4 mb-4">
+          <section className="card p-3 h-72"><h3 className="font-semibold mb-2">Revenue by Month</h3><ResponsiveContainer><LineChart data={chartRevMonth}><XAxis dataKey="month"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Line type="monotone" dataKey="revenue" stroke="#1bc7b3"/></LineChart></ResponsiveContainer></section>
+          <section className="card p-3 h-72"><h3 className="font-semibold mb-2">Revenue by Fiscal Year</h3><ResponsiveContainer><BarChart data={chartRevFy}><XAxis dataKey="fy"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Bar dataKey="revenue" fill="#2889c2"/></BarChart></ResponsiveContainer></section>
+          <section className="card p-3 h-72"><h3 className="font-semibold mb-2">Orders by Fiscal Year</h3><ResponsiveContainer><BarChart data={chartOrdersFy}><XAxis dataKey="fy"/><YAxis/><Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Bar dataKey="orders" fill="#21bd5b"/></BarChart></ResponsiveContainer></section>
+          <section className="card p-3 h-72"><h3 className="font-semibold mb-2">Revenue by Product Group</h3><ResponsiveContainer><BarChart data={chartRevGroup}><XAxis dataKey="prod_group"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Bar dataKey="revenue" fill="#f0b429"/></BarChart></ResponsiveContainer></section>
+        </div>
+
+        <section className="card overflow-auto">
+          <table className="w-full table-auto text-sm">
+            <thead className="bg-[var(--surface)] sticky top-0"><tr className="text-left border-b border-[var(--border)]">
+              <th className="px-3 py-2">InvoiceDate</th><th className="px-3 py-2">InvoiceNum</th><th className="px-3 py-2">OrderNum</th><th className="px-3 py-2">CustID</th><th className="px-3 py-2">CustName</th><th className="px-3 py-2">PartNum</th><th className="px-3 py-2">LineDesc (25)</th><th className="px-3 py-2">ProdGroup</th><th className="px-3 py-2">Country</th><th className="px-3 py-2">Territory</th><th className="px-3 py-2">ClassID</th><th className="px-3 py-2">Revenue</th><th className="px-3 py-2">Cost</th><th className="px-3 py-2">Profit</th><th className="px-3 py-2">Margin %</th><th className="px-3 py-2">InvoiceFY</th><th className="px-3 py-2">OrderLineFY</th>
+            </tr></thead>
+            <tbody>{detailRows.map((r, i) => <tr key={`${r.invoice_num}-${i}`} className="border-b border-[var(--border)] hover:bg-[var(--surface)]/60 align-top">
+              <td className="px-3 py-2 whitespace-nowrap">{r.invoice_date}</td><td className="px-3 py-2 whitespace-nowrap">{r.invoice_num}</td><td className="px-3 py-2 whitespace-nowrap">{r.order_num}</td><td className="px-3 py-2 whitespace-nowrap">{r.cust_id}</td><td className="px-3 py-2 whitespace-normal break-words">{r.cust_name}</td><td className="px-3 py-2 whitespace-nowrap">{r.part_num}</td><td className="px-3 py-2 whitespace-normal break-words">{r.line_desc_short}</td><td className="px-3 py-2 whitespace-nowrap">{r.prod_group}</td><td className="px-3 py-2 whitespace-nowrap">{r.country}</td><td className="px-3 py-2 whitespace-nowrap">{r.territory}</td><td className="px-3 py-2 whitespace-nowrap">{r.class_id}</td><td className="px-3 py-2 whitespace-nowrap">{currency(r.amount)}</td><td className="px-3 py-2 whitespace-nowrap">{currency(r.cost)}</td><td className="px-3 py-2 whitespace-nowrap">{currency(r.profit)}</td><td className="px-3 py-2 whitespace-nowrap">{pct(r.margin_pct)}</td><td className="px-3 py-2 whitespace-nowrap">{r.invoice_fy}</td><td className="px-3 py-2 whitespace-nowrap">{r.order_line_fy}</td>
+            </tr>)}</tbody>
+          </table>
+        </section>
+      </div>
+    </div>
+  </div>;
+}
