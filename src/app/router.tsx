@@ -15,7 +15,8 @@ export function AppRouter() {
     <Route path="/explorer" element={<ExplorerPage />} />
     <Route path="/rankings" element={<RankingsPage />} />
     <Route path="/top-items" element={<TopItemsPage />} />
-    <Route path="/decline" element={<DeclinePage />} />
+    <Route path="/labels" element={<DeclinePage />} />
+    <Route path="/decline" element={<Navigate to="/labels" replace />} />
     <Route path="/database" element={<DatabasePage />} />
     <Route path="*" element={<Navigate to={datasetLoaded ? '/explorer' : '/dataset'} replace />} />
   </Routes></AppShell>;

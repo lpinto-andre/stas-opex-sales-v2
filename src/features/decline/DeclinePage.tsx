@@ -4,10 +4,10 @@ import { getCustomerOptions, getDistinctOptions, getPartYearMetrics, getPartsOrd
 
 type Option = { value: string; label: string };
 type PeriodMode = 'all' | 'after' | 'before' | 'between';
+type RowLabel = 'Growing' | 'Stable' | 'Declining' | 'New' | 'Inactive';
 
 type DeclineRow = {
-  rank: number;
-  label: 'Growing' | 'Stable' | 'Declining' | 'New' | 'Inactive';
+  label: RowLabel;
   cust_id: string;
   cust_name: string;
   country: string;
@@ -30,7 +30,6 @@ type DeclineRow = {
 const currency = (value: number) => `$${Math.round(value).toLocaleString()}`;
 const pct = (value: number) => `${Math.round(value * 100)}%`;
 const score2 = (value: number) => value.toFixed(2);
-const score3 = (value: number) => value.toFixed(3);
 
 const isValidMonth = (m: string) => /^\d{4}-\d{2}$/.test(m);
 const safeMonthInput = (v: string) => (/^\d{0,4}(?:-\d{0,2})?$/.test(v) ? v : null);
@@ -48,13 +47,15 @@ function MultiPick({ label, options, values, onChange }: { label: string; option
   return <div className="text-xs text-[var(--text-muted)]"><div className="mb-1">{label}</div><div className="card h-28 overflow-auto p-2 space-y-1">{options.map((o) => <label key={o.value} className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={values.includes(o.value)} onChange={() => toggle(o.value)} /><span className="text-xs">{o.label}</span></label>)}</div></div>;
 }
 
-const labelColor: Record<DeclineRow['label'], string> = {
-  Growing: 'bg-emerald-500',
-  Stable: 'bg-gray-400',
-  Declining: 'bg-red-500',
-  New: 'bg-amber-500',
-  Inactive: 'bg-black'
+const labelClasses: Record<RowLabel, string> = {
+  Growing: 'bg-emerald-500/20 border-emerald-400 text-emerald-300',
+  Stable: 'bg-sky-500/20 border-sky-300 text-sky-200',
+  Declining: 'bg-red-500/20 border-red-400 text-red-300',
+  New: 'bg-amber-500/20 border-amber-400 text-amber-300',
+  Inactive: 'bg-white/10 border-white/50 text-white'
 };
+
+const labelOptions: Option[] = ['Growing', 'Stable', 'Declining', 'New', 'Inactive'].map((l) => ({ value: l, label: l }));
 
 export function DeclinePage() {
   const [k, setK] = useState(2);
@@ -79,6 +80,7 @@ export function DeclinePage() {
   const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
   const [selectedParts, setSelectedParts] = useState<string[]>([]);
   const [selectedProdGroups, setSelectedProdGroups] = useState<string[]>([]);
+  const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
 
   const [customerOptions, setCustomerOptions] = useState<Option[]>([]);
   const [countryOptions, setCountryOptions] = useState<Option[]>([]);
@@ -145,19 +147,19 @@ export function DeclinePage() {
         const pastRev = avgWindow(currentFY - k, m, 'revenue');
         const recentOrd = avgWindow(currentFY, k, 'orders');
         const pastOrd = avgWindow(currentFY - k, m, 'orders');
-        const revRatio = pastRev === 0 ? (recentRev > 0 ? Number.POSITIVE_INFINITY : 0) : recentRev / pastRev;
-        const ordRatio = pastOrd === 0 ? (recentOrd > 0 ? Number.POSITIVE_INFINITY : 0) : recentOrd / pastOrd;
-        let label: DeclineRow['label'] = 'Stable';
+        const revRatioRaw = pastRev === 0 ? (recentRev > 0 ? Number.POSITIVE_INFINITY : 0) : recentRev / pastRev;
+        const ordRatioRaw = pastOrd === 0 ? (recentOrd > 0 ? Number.POSITIVE_INFINITY : 0) : recentOrd / pastOrd;
+        const revRatio = Number.isFinite(revRatioRaw) ? revRatioRaw : 99;
+        const ordRatio = Number.isFinite(ordRatioRaw) ? ordRatioRaw : 99;
+
+        let label: RowLabel = 'Stable';
         if ((pastRev === 0 && recentRev > 0) || (pastOrd === 0 && recentOrd > 0)) label = 'New';
         else if ((recentRev === 0 && pastRev > 0) || (recentOrd === 0 && pastOrd > 0)) label = 'Inactive';
-        else {
-          const declineHit = logic === 'AND' ? (revRatio <= maxRevRatio && ordRatio <= maxOrdRatio) : (revRatio <= maxRevRatio || ordRatio <= maxOrdRatio);
-          if (pastRev >= minPastRevenue && pastOrd >= minPastOrders && declineHit) label = 'Declining';
-          else if (revRatio > 1 || ordRatio > 1) label = 'Growing';
-        }
+        else if (revRatio > 1 || ordRatio > 1) label = 'Growing';
+        else if ((logic === 'AND' && revRatio <= maxRevRatio && ordRatio <= maxOrdRatio) || (logic === 'OR' && (revRatio <= maxRevRatio || ordRatio <= maxOrdRatio))) label = 'Declining';
+
         const details = detailByPart.get(part);
         return {
-          rank: 0,
           label,
           cust_id: details?.cust_id ?? '',
           cust_name: details?.cust_name ?? '',
@@ -173,13 +175,20 @@ export function DeclinePage() {
           recent_avg_rev: recentRev,
           past_avg_orders: pastOrd,
           recent_avg_orders: recentOrd,
-          revenue_ratio: Number.isFinite(revRatio) ? revRatio : 99,
-          orders_ratio: Number.isFinite(ordRatio) ? ordRatio : 99
+          revenue_ratio: revRatio,
+          orders_ratio: ordRatio
         };
       });
 
+      const filtered = mapped.filter((row) => {
+        const minCheck = row.past_avg_rev >= minPastRevenue && row.past_avg_orders >= minPastOrders;
+        const ratioCheck = logic === 'AND' ? row.revenue_ratio <= maxRevRatio && row.orders_ratio <= maxOrdRatio : row.revenue_ratio <= maxRevRatio || row.orders_ratio <= maxOrdRatio;
+        const labelCheck = selectedLabels.length === 0 || selectedLabels.includes(row.label);
+        return minCheck && ratioCheck && labelCheck;
+      });
+
       const rowsMap = new Map<string, DeclineRow>();
-      mapped.forEach((row) => rowsMap.set(row.part_num, row));
+      filtered.forEach((row) => rowsMap.set(row.part_num, row));
 
       const yearsSet = new Set<number>();
       const addFyValue = (part: string, fy: number, key: string, value: number) => {
@@ -194,7 +203,7 @@ export function DeclinePage() {
       (ordFY as Record<string, unknown>[]).forEach((r) => addFyValue(String(r.part_num ?? ''), Number(r.fy ?? 0), 'orders_fy', Number(r.orders ?? 0)));
 
       const years = [...yearsSet].sort((a, b) => a - b);
-      const sorted: DeclineRow[] = [...rowsMap.values()].sort((a, b) => a.part_num.localeCompare(b.part_num)).map((row, idx) => ({ ...row, rank: idx + 1 }));
+      const sorted: DeclineRow[] = [...rowsMap.values()].sort((a, b) => a.part_num.localeCompare(b.part_num));
       sorted.forEach((r) => years.forEach((fy) => {
         if (r[`revenue_fy_${fy}`] == null) r[`revenue_fy_${fy}`] = 0;
         if (r[`orders_fy_${fy}`] == null) r[`orders_fy_${fy}`] = 0;
@@ -203,24 +212,26 @@ export function DeclinePage() {
       setRows(sorted);
       setFyColumns(years);
     });
-  }, [filters, k, m, minPastRevenue, minPastOrders, maxRevRatio, maxOrdRatio, logic]);
+  }, [filters, k, m, minPastRevenue, minPastOrders, maxRevRatio, maxOrdRatio, logic, selectedLabels]);
 
   const chips = [
     ...selectedCustomers.map((v) => ({ k: 'customers' as const, v })),
     ...selectedCountries.map((v) => ({ k: 'countries' as const, v })),
     ...selectedParts.map((v) => ({ k: 'parts' as const, v })),
-    ...selectedProdGroups.map((v) => ({ k: 'prodGroups' as const, v }))
+    ...selectedProdGroups.map((v) => ({ k: 'prodGroups' as const, v })),
+    ...selectedLabels.map((v) => ({ k: 'labels' as const, v }))
   ];
 
-  const removeValue = (kind: 'customers' | 'countries' | 'parts' | 'prodGroups', value: string) => {
+  const removeValue = (kind: 'customers' | 'countries' | 'parts' | 'prodGroups' | 'labels', value: string) => {
     if (kind === 'customers') setSelectedCustomers((x) => x.filter((v) => v !== value));
     if (kind === 'countries') setSelectedCountries((x) => x.filter((v) => v !== value));
     if (kind === 'parts') setSelectedParts((x) => x.filter((v) => v !== value));
     if (kind === 'prodGroups') setSelectedProdGroups((x) => x.filter((v) => v !== value));
+    if (kind === 'labels') setSelectedLabels((x) => x.filter((v) => v !== value));
   };
 
   return <div>
-    <PageHeader title="Declining Items Model" subtitle="Classify parts as Declining/Stable/Growing/New/Inactive." actions={<div className="grid grid-cols-4 gap-2 items-end">
+    <PageHeader title="Labels Model" subtitle="Classify parts as Declining/Stable/Growing/New/Inactive." actions={<div className="grid grid-cols-4 gap-2 items-end">
       <label className="text-xs text-[var(--text-muted)]">Recent FY window (k)<input type="number" value={k} onChange={(e) => setK(Number(e.target.value || 2))} className="card w-full px-2 py-1 mt-1" /></label>
       <label className="text-xs text-[var(--text-muted)]">Past FY window (m)<input type="number" value={m} onChange={(e) => setM(Number(e.target.value || 3))} className="card w-full px-2 py-1 mt-1" /></label>
       <label className="text-xs text-[var(--text-muted)]">Min Past Revenue<input type="number" value={minPastRevenue} onChange={(e) => setMinPastRevenue(Number(e.target.value || 10000))} className="card w-full px-2 py-1 mt-1" /></label>
@@ -234,11 +245,12 @@ export function DeclinePage() {
     <section className="card p-3 mb-3">
       <h3 className="font-semibold mb-2">Filters</h3>
       <p className="text-xs text-[var(--text-muted)] mb-2">Tip: tick multiple values in each filter to combine selections freely.</p>
-      <div className="grid lg:grid-cols-4 gap-3">
+      <div className="grid lg:grid-cols-5 gap-3">
         <div className="space-y-2"><input value={customerSearch} onChange={(e) => setCustomerSearch(e.target.value)} placeholder="Search customer" className="card w-full px-2 py-1 text-xs" /><MultiPick label="Customers" options={customerOptions} values={selectedCustomers} onChange={setSelectedCustomers} /></div>
         <div className="space-y-2"><input value={countrySearch} onChange={(e) => setCountrySearch(e.target.value)} placeholder="Search country" className="card w-full px-2 py-1 text-xs" /><MultiPick label="Countries" options={countryOptions} values={selectedCountries} onChange={setSelectedCountries} /></div>
         <div className="space-y-2"><input value={partSearch} onChange={(e) => setPartSearch(e.target.value)} placeholder="Search part" className="card w-full px-2 py-1 text-xs" /><MultiPick label="Parts" options={partOptions} values={selectedParts} onChange={setSelectedParts} /></div>
         <div className="space-y-2"><input value={groupSearch} onChange={(e) => setGroupSearch(e.target.value)} placeholder="Search group" className="card w-full px-2 py-1 text-xs" /><MultiPick label="ProdGroups" options={groupOptions} values={selectedProdGroups} onChange={setSelectedProdGroups} /></div>
+        <div className="space-y-2"><MultiPick label="Labels" options={labelOptions} values={selectedLabels} onChange={setSelectedLabels} /></div>
       </div>
       <div className="grid md:grid-cols-4 gap-2 mt-3">
         <label className="text-xs text-[var(--text-muted)]">LineDesc contains<input value={searchText} onChange={(e) => setSearchText(e.target.value)} className="card w-full px-2 py-1 mt-1" /></label>
@@ -252,7 +264,7 @@ export function DeclinePage() {
       <table className="w-full table-auto text-sm">
         <thead className="bg-[var(--surface)] sticky top-0">
           <tr className="text-left border-b border-[var(--border)]">
-            <th className="px-3 py-2">Rank</th><th className="px-3 py-2">Label</th><th className="px-3 py-2">CustID</th><th className="px-3 py-2">CustName</th><th className="px-3 py-2">Country</th><th className="px-3 py-2">PartNum</th><th className="px-3 py-2">LineDesc (25)</th><th className="px-3 py-2">ProdGroup</th>
+            <th className="px-3 py-2">Label</th><th className="px-3 py-2">CustID</th><th className="px-3 py-2">CustName</th><th className="px-3 py-2">Country</th><th className="px-3 py-2">PartNum</th><th className="px-3 py-2">LineDesc (25)</th><th className="px-3 py-2">ProdGroup</th>
             <th className="px-3 py-2">Revenue</th><th className="px-3 py-2">Orders</th><th className="px-3 py-2">Profit</th><th className="px-3 py-2">Margin</th>
             <th className="px-3 py-2">Past Avg Rev</th><th className="px-3 py-2">Recent Avg Rev</th><th className="px-3 py-2">Past Avg Orders</th><th className="px-3 py-2">Recent Avg Orders</th><th className="px-3 py-2">Revenue Ratio</th><th className="px-3 py-2">Orders Ratio</th>
             {fyColumns.map((fy) => <th key={`r-${fy}`} className="px-3 py-2">Rev {fyLabel(fy)}</th>)}
@@ -261,11 +273,10 @@ export function DeclinePage() {
         </thead>
         <tbody>
           {rows.map((row, i) => <tr key={`${row.part_num}-${i}`} className="border-b border-[var(--border)] hover:bg-[var(--surface)]/60 align-top">
-            <td className="px-3 py-2 whitespace-nowrap">{row.rank}</td>
-            <td className="px-3 py-2 whitespace-nowrap"><span className="inline-flex items-center gap-2"><span className={`inline-block w-2.5 h-2.5 rounded-full ${labelColor[row.label]}`} />{row.label}</span></td>
+            <td className="px-3 py-2 whitespace-nowrap"><span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs ${labelClasses[row.label as RowLabel]}`}>{row.label}</span></td>
             <td className="px-3 py-2 whitespace-nowrap">{row.cust_id}</td><td className="px-3 py-2 whitespace-normal break-words">{row.cust_name}</td><td className="px-3 py-2 whitespace-nowrap">{row.country}</td><td className="px-3 py-2 whitespace-nowrap">{row.part_num}</td><td className="px-3 py-2 whitespace-normal break-words">{row.line_desc_short}</td><td className="px-3 py-2 whitespace-nowrap">{row.prod_group}</td>
             <td className="px-3 py-2 whitespace-nowrap">{currency(Number(row.revenue))}</td><td className="px-3 py-2 whitespace-nowrap">{Number(row.orders).toLocaleString()}</td><td className="px-3 py-2 whitespace-nowrap">{currency(Number(row.profit))}</td><td className="px-3 py-2 whitespace-nowrap">{pct(Number(row.margin))}</td>
-            <td className="px-3 py-2 whitespace-nowrap">{currency(Number(row.past_avg_rev))}</td><td className="px-3 py-2 whitespace-nowrap">{currency(Number(row.recent_avg_rev))}</td><td className="px-3 py-2 whitespace-nowrap">{score2(Number(row.past_avg_orders))}</td><td className="px-3 py-2 whitespace-nowrap">{score2(Number(row.recent_avg_orders))}</td><td className="px-3 py-2 whitespace-nowrap">{currency(Number(row.revenue_ratio))}</td><td className="px-3 py-2 whitespace-nowrap">{score3(Number(row.orders_ratio))}</td>
+            <td className="px-3 py-2 whitespace-nowrap">{currency(Number(row.past_avg_rev))}</td><td className="px-3 py-2 whitespace-nowrap">{currency(Number(row.recent_avg_rev))}</td><td className="px-3 py-2 whitespace-nowrap">{score2(Number(row.past_avg_orders))}</td><td className="px-3 py-2 whitespace-nowrap">{score2(Number(row.recent_avg_orders))}</td><td className="px-3 py-2 whitespace-nowrap">{score2(Number(row.revenue_ratio))}</td><td className="px-3 py-2 whitespace-nowrap">{score2(Number(row.orders_ratio))}</td>
             {fyColumns.map((fy) => <td key={`rv-${i}-${fy}`} className="px-3 py-2 whitespace-nowrap">{currency(Number(row[`revenue_fy_${fy}`] ?? 0))}</td>)}
             {fyColumns.map((fy) => <td key={`ov-${i}-${fy}`} className="px-3 py-2 whitespace-nowrap">{Number(row[`orders_fy_${fy}`] ?? 0).toLocaleString()}</td>)}
           </tr>)}
