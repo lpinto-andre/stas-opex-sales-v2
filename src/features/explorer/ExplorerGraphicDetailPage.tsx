@@ -41,11 +41,61 @@ export function ExplorerGraphicDetailPage() {
     trendRevenue: { fromMonth: '', toMonth: '', parts: [] }, trendOrders: { fromMonth: '', toMonth: '', parts: [] }, totalRevenue: { fromMonth: '', toMonth: '', parts: [] }, totalOrders: { fromMonth: '', toMonth: '', parts: [] }, multiRevenue: { fromMonth: '', toMonth: '', parts: [] }, multiOrders: { fromMonth: '', toMonth: '', parts: [] }
   };
   const defaultN = Math.max(1, Math.min(10, Number(saved.topItemsN ?? 5)));
-  const limitedTop = topItemsSelection.partNums.slice(0, defaultN);
+  const [availableTopParts, setAvailableTopParts] = useState<string[]>([]);
 
-  const [fromMonth, setFromMonth] = useState(topFilters[graphicKey]?.fromMonth ?? '');
-  const [toMonth, setToMonth] = useState(topFilters[graphicKey]?.toMonth ?? '');
-  const [parts, setParts] = useState<string[]>(topFilters[graphicKey]?.parts?.length ? topFilters[graphicKey].parts.filter((p) => limitedTop.includes(p)) : limitedTop);
+  const limitedTop = useMemo(() => {
+    if (availableTopParts.length) return availableTopParts.slice(0, defaultN);
+    if (topItemsSelection.partNums.length) return topItemsSelection.partNums.slice(0, defaultN);
+    const sectionParts = topFilters[graphicKey]?.parts ?? [];
+    return sectionParts.slice(0, defaultN);
+  }, [availableTopParts, topItemsSelection.partNums, topFilters, graphicKey, defaultN]);
+
+  const [fromMonth, setFromMonth] = useState(topFilters[graphicKey]?.fromMonth ?? String(saved.fromMonth ?? ''));
+  const [toMonth, setToMonth] = useState(topFilters[graphicKey]?.toMonth ?? String(saved.toMonth ?? ''));
+  const [parts, setParts] = useState<string[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    const globalFilters: Filters = {
+      customers: (saved.selectedCustomers as string[])?.length ? (saved.selectedCustomers as string[]) : undefined,
+      countries: (saved.selectedCountries as string[])?.length ? (saved.selectedCountries as string[]) : undefined,
+      territories: (saved.selectedTerritories as string[])?.length ? (saved.selectedTerritories as string[]) : undefined,
+      prodGroups: (saved.selectedProdGroups as string[])?.length ? (saved.selectedProdGroups as string[]) : undefined,
+      searchLineDesc: String(saved.searchText ?? '') || undefined,
+      parts: (saved.selectedParts as string[])?.length ? (saved.selectedParts as string[]) : undefined
+    };
+    const mode = String(saved.periodMode ?? 'all');
+    const fm = String(saved.fromMonth ?? '');
+    const tm = String(saved.toMonth ?? '');
+    if (mode === 'after') globalFilters.startDate = monthStart(fm) || undefined;
+    if (mode === 'before') globalFilters.endDate = monthEnd(tm) || undefined;
+    if (mode === 'between') { globalFilters.startDate = monthStart(fm) || undefined; globalFilters.endDate = monthEnd(tm) || undefined; }
+
+    getPartsPriorityRows(globalFilters, 2000).then((rows) => {
+      if (!active) return;
+      const allParts = (rows as Record<string, unknown>[]).map((r) => String(r.part_num ?? '')).filter(Boolean);
+      setAvailableTopParts(Array.from(new Set(allParts)));
+    }).catch(() => {
+      if (!active) return;
+      setAvailableTopParts([]);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [saved]);
+
+  useEffect(() => {
+    const section = topFilters[graphicKey] ?? { fromMonth: '', toMonth: '', parts: [] };
+    const nextFrom = section.fromMonth || String(saved.fromMonth ?? '');
+    const nextTo = section.toMonth || String(saved.toMonth ?? '');
+    const source = section.parts.length ? section.parts : limitedTop;
+    const nextParts = limitedTop.length ? source.filter((p) => limitedTop.includes(p)) : source;
+
+    setFromMonth(nextFrom);
+    setToMonth(nextTo);
+    setParts(nextParts.length ? nextParts : limitedTop);
+  }, [graphicKey, topFilters, limitedTop, saved.fromMonth, saved.toMonth]);
 
   const baseFilters = useMemo<Filters>(() => {
     const f: Filters = {
@@ -76,7 +126,7 @@ export function ExplorerGraphicDetailPage() {
   useEffect(() => {
     const nextTopFilters = { ...topFilters, [graphicKey]: { fromMonth, toMonth, parts } };
     setPageState('explorer', { ...saved, topFilters: nextTopFilters });
-  }, [fromMonth, toMonth, parts]);
+  }, [fromMonth, toMonth, parts, graphicKey, setPageState, saved, topFilters]);
 
   useEffect(() => {
     let active = true;
@@ -166,8 +216,8 @@ export function ExplorerGraphicDetailPage() {
 
     <section className="card overflow-auto">
       <table className="w-full table-auto text-sm">
-        <thead className="bg-[var(--surface)] sticky top-0"><tr className="text-left border-b border-[var(--border)]"><th className="px-3 py-2">CustID</th><th className="px-3 py-2">CustName</th><th className="px-3 py-2">Country</th><th className="px-3 py-2">PartNum</th><th className="px-3 py-2">LineDesc (25)</th><th className="px-3 py-2">ProdGroup</th><th className="px-3 py-2">Orders</th><th className="px-3 py-2">Revenue</th><th className="px-3 py-2">Profit</th><th className="px-3 py-2">Profit %</th><th className="px-3 py-2">Active FY</th>{fyColumns.map((fy) => <th key={`r-${fy}`} className="px-3 py-2">Rev FY{fy}</th>)}{fyColumns.map((fy) => <th key={`o-${fy}`} className="px-3 py-2">Ord FY{fy}</th>)}</tr></thead>
-        <tbody>{tableRows.map((row, i) => <tr key={`${row.part_num}-${i}`} className="border-b border-[var(--border)]"><td className="px-3 py-2 whitespace-nowrap">{row.cust_id}</td><td className="px-3 py-2">{row.cust_name}</td><td className="px-3 py-2 whitespace-nowrap">{row.country}</td><td className="px-3 py-2 whitespace-nowrap">{row.part_num}</td><td className="px-3 py-2">{row.line_desc_short}</td><td className="px-3 py-2 whitespace-nowrap">{row.prod_group}</td><td className="px-3 py-2 whitespace-nowrap">{Number(row.orders).toLocaleString()}</td><td className="px-3 py-2 whitespace-nowrap">{currency(Number(row.revenue))}</td><td className="px-3 py-2 whitespace-nowrap">{currency(Number(row.profit))}</td><td className="px-3 py-2 whitespace-nowrap">{pct(Number(row.profit_pct))}</td><td className="px-3 py-2 whitespace-nowrap">{row.active_fy_count}</td>{fyColumns.map((fy) => <td key={`rv-${i}-${fy}`} className="px-3 py-2 whitespace-nowrap">{currency(Number(row[`revenue_fy_${fy}`] ?? 0))}</td>)}{fyColumns.map((fy) => <td key={`ov-${i}-${fy}`} className="px-3 py-2 whitespace-nowrap">{Number(row[`orders_fy_${fy}`] ?? 0).toLocaleString()}</td>)}</tr>)}</tbody>
+        <thead className="bg-[var(--surface)] sticky top-0"><tr className="text-left border-b border-[var(--border)]"><th className="px-3 py-2">Rank</th><th className="px-3 py-2">CustID</th><th className="px-3 py-2">CustName</th><th className="px-3 py-2">Country</th><th className="px-3 py-2">PartNum</th><th className="px-3 py-2">LineDesc (25)</th><th className="px-3 py-2">ProdGroup</th><th className="px-3 py-2">Orders</th><th className="px-3 py-2">Revenue</th><th className="px-3 py-2">Profit</th><th className="px-3 py-2">Profit %</th><th className="px-3 py-2">Active FY</th>{fyColumns.map((fy) => <th key={`r-${fy}`} className="px-3 py-2">Rev FY{fy}</th>)}{fyColumns.map((fy) => <th key={`o-${fy}`} className="px-3 py-2">Ord FY{fy}</th>)}</tr></thead>
+        <tbody>{tableRows.map((row, i) => <tr key={`${row.part_num}-${i}`} className="border-b border-[var(--border)]"><td className="px-3 py-2 whitespace-nowrap">{i + 1}</td><td className="px-3 py-2 whitespace-nowrap">{row.cust_id}</td><td className="px-3 py-2">{row.cust_name}</td><td className="px-3 py-2 whitespace-nowrap">{row.country}</td><td className="px-3 py-2 whitespace-nowrap">{row.part_num}</td><td className="px-3 py-2">{row.line_desc_short}</td><td className="px-3 py-2 whitespace-nowrap">{row.prod_group}</td><td className="px-3 py-2 whitespace-nowrap">{Number(row.orders).toLocaleString()}</td><td className="px-3 py-2 whitespace-nowrap">{currency(Number(row.revenue))}</td><td className="px-3 py-2 whitespace-nowrap">{currency(Number(row.profit))}</td><td className="px-3 py-2 whitespace-nowrap">{pct(Number(row.profit_pct))}</td><td className="px-3 py-2 whitespace-nowrap">{row.active_fy_count}</td>{fyColumns.map((fy) => <td key={`rv-${i}-${fy}`} className="px-3 py-2 whitespace-nowrap">{currency(Number(row[`revenue_fy_${fy}`] ?? 0))}</td>)}{fyColumns.map((fy) => <td key={`ov-${i}-${fy}`} className="px-3 py-2 whitespace-nowrap">{Number(row[`orders_fy_${fy}`] ?? 0).toLocaleString()}</td>)}</tr>)}</tbody>
       </table>
     </section>
   </div>;
