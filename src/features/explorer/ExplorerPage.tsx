@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Component, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { KPIStatCard } from '@/components/ui/KPIStatCard';
 import { FilterChipsBar } from '@/components/ui/FilterChipsBar';
@@ -14,6 +14,29 @@ function toCsv(rows: Record<string, unknown>[]) {
   return [cols.join(','), ...rows.map((r) => cols.map((c) => JSON.stringify(r[c] ?? '')).join(','))].join('\n');
 }
 
+
+
+class ExplorerErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; message: string }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, message: '' };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, message: error?.message ?? 'Unexpected explorer rendering error.' };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error('Explorer render failure', error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return <section className="card p-4 border-[var(--danger)]"><h3 className="font-semibold text-[var(--danger)]">Explorer rendering failed</h3><p className="text-sm mt-1">{this.state.message}</p><p className="text-xs text-[var(--text-muted)] mt-2">Try resetting filters or returning to Dataset Manager and re-importing.</p></section>;
+    }
+    return this.props.children;
+  }
+}
 export function ExplorerPage() {
   const filters = useAppStore((s) => s.filters);
   const resetFilters = useAppStore((s) => s.resetFilters);
@@ -65,6 +88,11 @@ export function ExplorerPage() {
 
   const chips = Object.entries(filters).flatMap(([k, v]) => Array.isArray(v) ? v.map((x) => `${k}:${x}`) : v ? [`${k}:${v}`] : []);
 
+  const safeRevMonth = useMemo(() => revMonth.map((r) => ({ month: String(r.month ?? ''), revenue: Number(r.revenue ?? 0) || 0 })), [revMonth]);
+  const safeRevFy = useMemo(() => revFy.map((r) => ({ fy: String(r.fy ?? ''), revenue: Number(r.revenue ?? 0) || 0 })), [revFy]);
+  const safeOrdersFy = useMemo(() => ordersFy.map((r) => ({ fy: String(r.fy ?? ''), orders: Number(r.orders ?? 0) || 0 })), [ordersFy]);
+  const safeRevGroup = useMemo(() => revGroup.map((r) => ({ prod_group: String(r.prod_group ?? ''), revenue: Number(r.revenue ?? 0) || 0 })), [revGroup]);
+
   const exportRows = () => {
     const csv = toCsv(detailRows);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
@@ -80,7 +108,7 @@ export function ExplorerPage() {
     <PageHeader title="Data Explorer" subtitle="Real-time DuckDB analytics across imported dataset." actions={<div className="flex gap-2"><button className="card px-3 py-2" onClick={exportRows} disabled={!datasetLoaded}>Export CSV</button><button className="card px-3 py-2" onClick={resetFilters}>Reset filters</button></div>} />
     {!datasetLoaded && <section className="card p-4 mb-4"><h3 className="font-semibold">No dataset loaded</h3><p className="text-sm text-[var(--text-muted)] mt-1">Please import a dataset from Dataset Manager first.</p></section>}
     {loadError && <section className="card p-4 mb-4 border-[var(--danger)]"><h3 className="font-semibold text-[var(--danger)]">Explorer query failed</h3><p className="text-sm mt-1">{loadError}</p></section>}
-    <div className="grid lg:grid-cols-[320px_1fr] gap-4">
+    <ExplorerErrorBoundary><div className="grid lg:grid-cols-[320px_1fr] gap-4">
       {datasetLoaded && <FilterSidebar />}
       <div>
         <FilterChipsBar chips={chips} onRemove={() => undefined} />
@@ -94,13 +122,13 @@ export function ExplorerPage() {
           <KPIStatCard label="Parts" value={String(kpis.parts ?? 0)} />
         </div>
         <div className="grid md:grid-cols-2 gap-4 mb-4">
-          <div className="card p-3 h-64"><ResponsiveContainer><LineChart data={revMonth}><XAxis dataKey="month"/><YAxis/><Tooltip/><Line type="monotone" dataKey="revenue" stroke="#1bc7b3"/></LineChart></ResponsiveContainer></div>
-          <div className="card p-3 h-64"><ResponsiveContainer><BarChart data={revFy}><XAxis dataKey="fy"/><YAxis/><Tooltip/><Bar dataKey="revenue" fill="#2889c2"/></BarChart></ResponsiveContainer></div>
-          <div className="card p-3 h-64"><ResponsiveContainer><BarChart data={ordersFy}><XAxis dataKey="fy"/><YAxis/><Tooltip/><Bar dataKey="orders" fill="#21bd5b"/></BarChart></ResponsiveContainer></div>
-          <div className="card p-3 h-64"><ResponsiveContainer><BarChart data={revGroup}><XAxis dataKey="prod_group"/><YAxis/><Tooltip/><Bar dataKey="revenue" fill="#f0b429"/></BarChart></ResponsiveContainer></div>
+          <div className="card p-3 h-64"><ResponsiveContainer><LineChart data={safeRevMonth}><XAxis dataKey="month"/><YAxis/><Tooltip/><Line type="monotone" dataKey="revenue" stroke="#1bc7b3"/></LineChart></ResponsiveContainer></div>
+          <div className="card p-3 h-64"><ResponsiveContainer><BarChart data={safeRevFy}><XAxis dataKey="fy"/><YAxis/><Tooltip/><Bar dataKey="revenue" fill="#2889c2"/></BarChart></ResponsiveContainer></div>
+          <div className="card p-3 h-64"><ResponsiveContainer><BarChart data={safeOrdersFy}><XAxis dataKey="fy"/><YAxis/><Tooltip/><Bar dataKey="orders" fill="#21bd5b"/></BarChart></ResponsiveContainer></div>
+          <div className="card p-3 h-64"><ResponsiveContainer><BarChart data={safeRevGroup}><XAxis dataKey="prod_group"/><YAxis/><Tooltip/><Bar dataKey="revenue" fill="#f0b429"/></BarChart></ResponsiveContainer></div>
         </div>
         <DataTable rows={detailRows} />
       </div>
-    </div>
+    </div></ExplorerErrorBoundary>
   </div>;
 }
