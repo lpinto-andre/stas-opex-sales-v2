@@ -2,10 +2,9 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { useAppStore } from '@/state/store';
-import { labels } from '@/constants/labels';
 import { importDatasetFile, type ImportStatus } from '@/data/importPipeline';
-import { buildStasPack, clearDatasetPackage, loadDatasetPackage, parseStasPack, saveDatasetPackage } from '@/data/cache';
-import { buildModel, dropAllTables } from '@/data/duckdb';
+import { clearDatasetPackage } from '@/data/cache';
+import { dropAllTables } from '@/data/duckdb';
 
 type ToastState = { tone: 'success' | 'error'; text: string } | null;
 
@@ -14,19 +13,8 @@ const steps: { phase: ImportStatus['phase']; label: string }[] = [
   { phase: 'parsing', label: 'Parsing sheet' },
   { phase: 'cleaning', label: 'Cleaning columns' },
   { phase: 'duckdb', label: 'Building dataset' },
-  { phase: 'caching', label: 'Caching' }
+  { phase: 'caching', label: 'Saving local cache' }
 ];
-
-function downloadFile(bytes: Uint8Array, filename: string) {
-  const safeBytes = Uint8Array.from(bytes);
-  const blob = new Blob([safeBytes], { type: 'application/octet-stream' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 export function DatasetPage() {
   const navigate = useNavigate();
@@ -42,7 +30,7 @@ export function DatasetPage() {
   const [selectedSheet, setSelectedSheet] = useState<string>('');
   const [isImporting, setIsImporting] = useState(false);
 
-  const { datasetMeta, performanceMode, setDataset } = useAppStore();
+  const { datasetMeta, setDataset } = useAppStore();
 
   useEffect(() => {
     if (!toast) return;
@@ -76,20 +64,6 @@ export function DatasetPage() {
     setSheetWarning('');
     abortRef.current = new AbortController();
     try {
-      if (file.name.toLowerCase().endsWith('.staspack')) {
-        setStatus({ phase: 'reading', progress: 0.2, message: 'Reading dataset package...', startedAt: Date.now() });
-        const buff = new Uint8Array(await file.arrayBuffer());
-        const parsed = parseStasPack(buff);
-        setStatus({ phase: 'duckdb', progress: 0.7, message: 'Building DuckDB tables...', startedAt: Date.now() });
-        await buildModel(parsed.dataNdjson);
-        await saveDatasetPackage(parsed.dataNdjson, parsed.meta);
-        updateDatasetMeta(parsed.meta as Record<string, unknown>);
-        setStatus({ phase: 'done', progress: 1, message: 'Dataset loaded successfully.', startedAt: Date.now() });
-        setToast({ tone: 'success', text: 'Dataset package imported.' });
-        setTimeout(() => navigate('/explorer'), 500);
-        return;
-      }
-
       const result = await importDatasetFile({
         file,
         selectedSheet: forcedSheet,
@@ -111,7 +85,7 @@ export function DatasetPage() {
         return;
       }
       updateDatasetMeta(result.summary as unknown as Record<string, unknown>);
-      setToast({ tone: 'success', text: 'Dataset loaded successfully.' });
+      setToast({ tone: 'success', text: 'Dataset imported successfully.' });
       setTimeout(() => navigate('/explorer'), 500);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unexpected import failure.';
@@ -121,7 +95,6 @@ export function DatasetPage() {
     } finally {
       abortRef.current = null;
       setIsImporting(false);
-      console.log('IMPORT FINISHED');
     }
   };
 
@@ -129,20 +102,8 @@ export function DatasetPage() {
     const file = event.target.files?.[0];
     if (!file) return;
     setIsImporting(true);
-    console.log('IMPORT STARTED');
     await executeImport(file);
     event.target.value = '';
-  };
-
-  const exportStasPack = async () => {
-    const loaded = await loadDatasetPackage();
-    if (!loaded) {
-      setToast({ tone: 'error', text: 'No cached dataset to export.' });
-      return;
-    }
-    const bytes = buildStasPack(loaded.data, loaded.meta);
-    const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15);
-    downloadFile(bytes, `stas_opex_dataset_${stamp}.staspack`);
   };
 
   const clearLocalDataset = async () => {
@@ -152,31 +113,27 @@ export function DatasetPage() {
     setToast({ tone: 'success', text: 'Local dataset cleared.' });
   };
 
-  const unregisterSw = async () => {
-    const regs = await navigator.serviceWorker.getRegistrations();
-    await Promise.all(regs.map((r) => r.unregister()));
-    setToast({ tone: 'success', text: 'Service workers unregistered.' });
-  };
-
   const cancelImport = () => abortRef.current?.abort();
 
   return <div className="space-y-4">
     <PageHeader
-      title="Dataset Manager - A"
-      subtitle="Import status debugging enabled"
+      title="Dataset Manager"
+      subtitle="Import your source file to build the local analytics model and start exploring dashboards."
       actions={<div className="flex flex-wrap gap-2 items-center">
-        <span className="px-2 py-1 rounded-full bg-[var(--surface)] border border-[var(--teal)] text-xs text-[var(--teal)]">Build A</span>
-        <button disabled={isImporting} className="card px-3 py-2 disabled:opacity-50" onClick={() => fileRef.current?.click()}>Import Excel/CSV/.staspack</button>
-        <button className="card px-3 py-2" onClick={exportStasPack}>Export .staspack</button>
         <button className="card px-3 py-2" onClick={clearLocalDataset}>Clear local dataset</button>
-        {import.meta.env.DEV && <button className="card px-3 py-2" onClick={unregisterSw}>Unregister SW</button>}
         {isImporting && <button className="card px-3 py-2 border-[var(--danger)] text-[var(--danger)]" onClick={cancelImport}>Cancel</button>}
       </div>}
     />
 
-    <p className="text-xs text-[var(--text-muted)]">mode: {import.meta.env.MODE} | build: {__BUILD_TIME__}</p>
+    <input ref={fileRef} type="file" className="hidden" accept=".xlsx,.xlsm,.csv" onChange={onFileChange} />
 
-    <input ref={fileRef} type="file" className="hidden" accept=".xlsx,.xlsm,.csv,.staspack" onChange={onFileChange} />
+    <section className="card p-6 text-center">
+      <h3 className="font-semibold text-lg mb-2">Import source file</h3>
+      <p className="text-sm text-[var(--text-muted)] mb-4">Supported formats: Excel (.xlsx/.xlsm) and CSV.</p>
+      <button disabled={isImporting} className="card mx-auto h-40 w-40 text-center flex items-center justify-center text-sm font-semibold border-[var(--teal)] text-[var(--teal)] disabled:opacity-50" onClick={() => fileRef.current?.click()}>
+        {isImporting ? 'Importing…' : 'Import File'}
+      </button>
+    </section>
 
     {isImporting && (
       <div className="fixed inset-0 bg-black/50 z-40 flex items-center justify-center px-4">
@@ -207,8 +164,28 @@ export function DatasetPage() {
     {errorMsg && <section className="card p-4 border-[var(--danger)]"><h3 className="font-semibold text-[var(--danger)]">Import failed</h3><p className="text-sm mt-1">{errorMsg}</p><details className="mt-3 text-xs"><summary>Technical details</summary><pre className="mt-2 whitespace-pre-wrap text-[var(--text-muted)]">{errorDetails}</pre></details></section>}
 
     <div className="grid md:grid-cols-2 gap-4">
-      <section className="card p-4 space-y-2"><h3 className="font-semibold">Current dataset status</h3><p>{performanceMode ? labels.hpOn : labels.hpOff}</p><pre className="text-xs text-[var(--text-muted)]">{JSON.stringify(datasetMeta, null, 2) || 'No dataset loaded'}</pre></section>
-      <section className="card p-4"><h3 className="font-semibold">Validation report</h3><p className="text-sm text-[var(--text-muted)]">Required columns, filtered rows, invalid dates, and missing cost rows are listed after import.</p></section>
+      <section className="card p-4">
+        <h3 className="font-semibold mb-2">Import status</h3>
+        {!datasetMeta && <p className="text-sm text-[var(--text-muted)]">No dataset loaded yet.</p>}
+        {datasetMeta && <div className="space-y-1 text-sm">
+          <p className="text-[var(--green)] font-medium">✅ Dataset loaded successfully</p>
+          <p>Loaded at: <span className="text-[var(--text-muted)]">{datasetMeta.loadedAt}</span></p>
+          <p>Rows: <span className="text-[var(--text-muted)]">{datasetMeta.rowCount.toLocaleString()}</span></p>
+          <p>Date range: <span className="text-[var(--text-muted)]">{datasetMeta.dateRange}</span></p>
+          <p>Fiscal years: <span className="text-[var(--text-muted)]">{datasetMeta.fyRange}</span></p>
+        </div>}
+      </section>
+      <section className="card p-4">
+        <h3 className="font-semibold mb-2">Data quality summary</h3>
+        {!datasetMeta && <p className="text-sm text-[var(--text-muted)]">Import a dataset to view quality indicators.</p>}
+        {datasetMeta && <div className="space-y-1 text-sm">
+          <p>Customers: <span className="text-[var(--text-muted)]">{datasetMeta.customers.toLocaleString()}</span></p>
+          <p>Parts: <span className="text-[var(--text-muted)]">{datasetMeta.parts.toLocaleString()}</span></p>
+          <p>Missing cost rows: <span className="text-[var(--text-muted)]">{datasetMeta.missingCostPct.toFixed(2)}%</span></p>
+          <p>Dropped rows: <span className="text-[var(--text-muted)]">{Number(datasetMeta.droppedPct ?? 0).toFixed(2)}%</span></p>
+          <p>Invalid date rows: <span className="text-[var(--text-muted)]">{Number(datasetMeta.invalidDateRows ?? 0).toLocaleString()}</span></p>
+        </div>}
+      </section>
     </div>
 
     {toast && <div className={`fixed right-4 bottom-4 card px-4 py-2 ${toast.tone === 'success' ? 'border-[var(--green)] text-[var(--green)]' : 'border-[var(--danger)] text-[var(--danger)]'}`}>{toast.text}</div>}
