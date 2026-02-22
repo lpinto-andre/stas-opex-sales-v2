@@ -8,6 +8,7 @@ import {
   getDetailRows,
   getDistinctOptions,
   getKPIs,
+  getPartYearMetrics,
   getOrderTotalsForParts,
   getOrdersByFY,
   getOrdersByFYAndPartForParts,
@@ -35,6 +36,7 @@ type ExplorerRow = {
 };
 
 type TopSectionFilter = { fromMonth: string; toMonth: string; parts: string[] };
+type Weights = { revenue: number; orders: number; profit: number; margin: number; trend: number; active: number };
 
 const currency = (value: number) => `$${Math.round(value).toLocaleString()}`;
 const pct = (value: number) => `${Math.round(value * 100)}%`;
@@ -74,6 +76,7 @@ export function ExplorerPage() {
   const [toMonth, setToMonth] = useState(String(saved.toMonth ?? ''));
   const [searchText, setSearchText] = useState(String(saved.searchText ?? ''));
   const [topItemsN, setTopItemsN] = useState(Number(saved.topItemsN ?? 5));
+  const [scopedTopParts, setScopedTopParts] = useState<string[]>([]);
 
   const [customerSearch, setCustomerSearch] = useState('');
   const [countrySearch, setCountrySearch] = useState('');
@@ -132,9 +135,65 @@ export function ExplorerPage() {
     return f;
   }, [selectedCustomers, selectedCountries, selectedTerritories, selectedParts, selectedProdGroups, searchText, periodMode, fromMonth, toMonth]);
 
-  const allTopParts = useMemo(() => topItemsSelection.partNums.length ? topItemsSelection.partNums : [], [topItemsSelection.partNums]);
+  const allTopParts = useMemo(() => (scopedTopParts.length ? scopedTopParts : topItemsSelection.partNums), [scopedTopParts, topItemsSelection.partNums]);
   const boundedTopItemsN = Math.max(1, Math.min(10, topItemsN || 5));
   const limitedTopParts = useMemo(() => allTopParts.slice(0, boundedTopItemsN), [allTopParts, boundedTopItemsN]);
+
+
+  useEffect(() => {
+    const topSaved = (useAppStore.getState().pageState['top-items'] as Record<string, unknown>) ?? {};
+    const k = Math.max(1, Number(topSaved.k ?? 2));
+    const m = Math.max(1, Number(topSaved.m ?? 3));
+    const weights = (topSaved.weights as Weights) ?? { revenue: 30, orders: 20, profit: 20, margin: 10, trend: 10, active: 10 };
+    getPartYearMetrics(filters).then((data) => {
+      const byPart = new Map<string, { fy: number; revenue: number; orders: number; profit: number; margin: number }[]>();
+      data.forEach((r) => {
+        const part = String(r.part_num ?? '');
+        if (!part || part.trim().toUpperCase() === 'SHIPPING') return;
+        const arr = byPart.get(part) ?? [];
+        arr.push({ fy: Number(r.invoice_fy), revenue: Number(r.revenue), orders: Number(r.orders), profit: Number(r.profit), margin: Number(r.margin) });
+        byPart.set(part, arr);
+      });
+      const currentFY = Math.max(...data.map((d) => Number(d.invoice_fy || 0)), 0);
+      const base = [...byPart.entries()].map(([part, years]) => {
+        const getWindow = (start: number, len: number) => Array.from({ length: len }, (_, i) => start - i);
+        const recentFys = getWindow(currentFY, k);
+        const pastFys = getWindow(currentFY - k, m);
+        const sumAt = (fys: number[], key: 'revenue' | 'orders') => fys.reduce((acc, fy) => acc + (years.find((y) => y.fy === fy)?.[key] ?? 0), 0);
+        const recentRev = sumAt(recentFys, 'revenue') / Math.max(k, 1);
+        const pastRev = sumAt(pastFys, 'revenue') / Math.max(m, 1);
+        const recentOrd = sumAt(recentFys, 'orders') / Math.max(k, 1);
+        const pastOrd = sumAt(pastFys, 'orders') / Math.max(m, 1);
+        const ratio = (recent: number, past: number) => past === 0 && recent > 0 ? 1 : past > 0 && recent === 0 ? 0 : past === 0 ? 0 : Math.max(0, Math.min(2, recent / past)) / 2;
+        const trend_score = (ratio(recentRev, pastRev) + ratio(recentOrd, pastOrd)) / 2;
+        const revenue = years.reduce((a, y) => a + y.revenue, 0);
+        const orders = years.reduce((a, y) => a + y.orders, 0);
+        const profit = years.reduce((a, y) => a + y.profit, 0);
+        const margin = revenue ? profit / revenue : 0;
+        const active_years = years.filter((y) => y.revenue > 0).length;
+        return { part_num: part, revenue, orders, profit, margin, trend_score, active_years };
+      });
+      const rankNorm = (arr: typeof base, key: keyof (typeof base)[number]) => {
+        const sorted = [...arr].sort((a, b) => Number(b[key]) - Number(a[key]));
+        const map = new Map<string, number>();
+        sorted.forEach((row, i) => map.set(row.part_num, sorted.length === 1 ? 1 : 1 - i / (sorted.length - 1)));
+        return map;
+      };
+      const nRevenue = rankNorm(base, 'revenue');
+      const nOrders = rankNorm(base, 'orders');
+      const nProfit = rankNorm(base, 'profit');
+      const nMargin = rankNorm(base, 'margin');
+      const nTrend = rankNorm(base, 'trend_score');
+      const nActive = rankNorm(base, 'active_years');
+      const totalWeight = Object.values(weights).reduce((a, b) => a + b, 0) || 1;
+      const wn = { revenue: weights.revenue / totalWeight, orders: weights.orders / totalWeight, profit: weights.profit / totalWeight, margin: weights.margin / totalWeight, trend: weights.trend / totalWeight, active: weights.active / totalWeight };
+      const ranked = [...base].map((r) => ({
+        part_num: r.part_num,
+        score: wn.revenue * (nRevenue.get(r.part_num) ?? 0) + wn.orders * (nOrders.get(r.part_num) ?? 0) + wn.profit * (nProfit.get(r.part_num) ?? 0) + wn.margin * (nMargin.get(r.part_num) ?? 0) + wn.trend * (nTrend.get(r.part_num) ?? 0) + wn.active * (nActive.get(r.part_num) ?? 0)
+      })).sort((a, b) => b.score - a.score).map((x) => x.part_num);
+      setScopedTopParts(ranked);
+    });
+  }, [filters]);
 
   useEffect(() => {
     setTopFilters((prev) => {
