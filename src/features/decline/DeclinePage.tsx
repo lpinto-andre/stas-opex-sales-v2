@@ -5,6 +5,8 @@ import { getCustomerOptions, getDistinctOptions, getPartYearMetrics, getPartsOrd
 type Option = { value: string; label: string };
 type PeriodMode = 'all' | 'after' | 'before' | 'between';
 type RowLabel = 'Growing' | 'Stable' | 'Declining' | 'New' | 'Inactive';
+type RankMetric = 'revenue' | 'orders' | 'profit' | 'margin' | 'revenue_ratio' | 'orders_ratio';
+type SortDir = 'asc' | 'desc';
 
 type DeclineRow = {
   label: RowLabel;
@@ -60,17 +62,19 @@ const labelOptions: Option[] = ['Growing', 'Stable', 'Declining', 'New', 'Inacti
 export function DeclinePage() {
   const [k, setK] = useState(2);
   const [m, setM] = useState(3);
+  const [periodMode, setPeriodMode] = useState<PeriodMode>('all');
+  const [fromMonth, setFromMonth] = useState('');
+  const [toMonth, setToMonth] = useState('');
+
+  const [rankBy, setRankBy] = useState<RankMetric>('revenue');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [minPastRevenue, setMinPastRevenue] = useState(10000);
   const [minPastOrders, setMinPastOrders] = useState(5);
   const [maxRevRatio, setMaxRevRatio] = useState(0.5);
   const [maxOrdRatio, setMaxOrdRatio] = useState(0.5);
   const [logic, setLogic] = useState<'AND' | 'OR'>('AND');
 
-  const [periodMode, setPeriodMode] = useState<PeriodMode>('all');
-  const [fromMonth, setFromMonth] = useState('');
-  const [toMonth, setToMonth] = useState('');
   const [searchText, setSearchText] = useState('');
-
   const [customerSearch, setCustomerSearch] = useState('');
   const [countrySearch, setCountrySearch] = useState('');
   const [partSearch, setPartSearch] = useState('');
@@ -124,15 +128,8 @@ export function DeclinePage() {
         const revenue = Number(r.revenue ?? 0);
         const profit = Number(r.profit ?? 0);
         detailByPart.set(part, {
-          cust_id: String(r.cust_id ?? ''),
-          cust_name: String(r.cust_name ?? ''),
-          country: String(r.country ?? ''),
-          line_desc_short: String(r.line_desc_short ?? ''),
-          prod_group: String(r.prod_group ?? ''),
-          revenue,
-          orders: Number(r.orders ?? 0),
-          profit,
-          margin: revenue === 0 ? 0 : profit / revenue
+          cust_id: String(r.cust_id ?? ''), cust_name: String(r.cust_name ?? ''), country: String(r.country ?? ''), line_desc_short: String(r.line_desc_short ?? ''), prod_group: String(r.prod_group ?? ''),
+          revenue, orders: Number(r.orders ?? 0), profit, margin: revenue === 0 ? 0 : profit / revenue
         });
       });
 
@@ -147,37 +144,17 @@ export function DeclinePage() {
         const pastRev = avgWindow(currentFY - k, m, 'revenue');
         const recentOrd = avgWindow(currentFY, k, 'orders');
         const pastOrd = avgWindow(currentFY - k, m, 'orders');
-        const revRatioRaw = pastRev === 0 ? (recentRev > 0 ? Number.POSITIVE_INFINITY : 0) : recentRev / pastRev;
-        const ordRatioRaw = pastOrd === 0 ? (recentOrd > 0 ? Number.POSITIVE_INFINITY : 0) : recentOrd / pastOrd;
-        const revRatio = Number.isFinite(revRatioRaw) ? revRatioRaw : 99;
-        const ordRatio = Number.isFinite(ordRatioRaw) ? ordRatioRaw : 99;
+        const revenue_ratio = Number.isFinite(recentRev / (pastRev || 1)) ? (pastRev === 0 ? (recentRev > 0 ? 99 : 0) : recentRev / pastRev) : 99;
+        const orders_ratio = Number.isFinite(recentOrd / (pastOrd || 1)) ? (pastOrd === 0 ? (recentOrd > 0 ? 99 : 0) : recentOrd / pastOrd) : 99;
 
         let label: RowLabel = 'Stable';
         if ((pastRev === 0 && recentRev > 0) || (pastOrd === 0 && recentOrd > 0)) label = 'New';
         else if ((recentRev === 0 && pastRev > 0) || (recentOrd === 0 && pastOrd > 0)) label = 'Inactive';
-        else if (revRatio > 1 || ordRatio > 1) label = 'Growing';
-        else if ((logic === 'AND' && revRatio <= maxRevRatio && ordRatio <= maxOrdRatio) || (logic === 'OR' && (revRatio <= maxRevRatio || ordRatio <= maxOrdRatio))) label = 'Declining';
+        else if (revenue_ratio > 1 || orders_ratio > 1) label = 'Growing';
+        else if ((logic === 'AND' && revenue_ratio <= maxRevRatio && orders_ratio <= maxOrdRatio) || (logic === 'OR' && (revenue_ratio <= maxRevRatio || orders_ratio <= maxOrdRatio))) label = 'Declining';
 
         const details = detailByPart.get(part);
-        return {
-          label,
-          cust_id: details?.cust_id ?? '',
-          cust_name: details?.cust_name ?? '',
-          country: details?.country ?? '',
-          part_num: part,
-          line_desc_short: details?.line_desc_short ?? '',
-          prod_group: details?.prod_group ?? '',
-          revenue: details?.revenue ?? 0,
-          orders: details?.orders ?? 0,
-          profit: details?.profit ?? 0,
-          margin: details?.margin ?? 0,
-          past_avg_rev: pastRev,
-          recent_avg_rev: recentRev,
-          past_avg_orders: pastOrd,
-          recent_avg_orders: recentOrd,
-          revenue_ratio: revRatio,
-          orders_ratio: ordRatio
-        };
+        return { label, cust_id: details?.cust_id ?? '', cust_name: details?.cust_name ?? '', country: details?.country ?? '', part_num: part, line_desc_short: details?.line_desc_short ?? '', prod_group: details?.prod_group ?? '', revenue: details?.revenue ?? 0, orders: details?.orders ?? 0, profit: details?.profit ?? 0, margin: details?.margin ?? 0, past_avg_rev: pastRev, recent_avg_rev: recentRev, past_avg_orders: pastOrd, recent_avg_orders: recentOrd, revenue_ratio, orders_ratio };
       });
 
       const filtered = mapped.filter((row) => {
@@ -189,39 +166,27 @@ export function DeclinePage() {
 
       const rowsMap = new Map<string, DeclineRow>();
       filtered.forEach((row) => rowsMap.set(row.part_num, row));
-
       const yearsSet = new Set<number>();
       const addFyValue = (part: string, fy: number, key: string, value: number) => {
         const row = rowsMap.get(part);
         if (!row || !fy) return;
         yearsSet.add(fy);
-        const col = `${key}_${fy}`;
-        row[col] = Number(row[col] ?? 0) + value;
+        row[`${key}_${fy}`] = Number(row[`${key}_${fy}`] ?? 0) + value;
       };
-
       (revFY as Record<string, unknown>[]).forEach((r) => addFyValue(String(r.part_num ?? ''), Number(r.fy ?? 0), 'revenue_fy', Number(r.revenue ?? 0)));
       (ordFY as Record<string, unknown>[]).forEach((r) => addFyValue(String(r.part_num ?? ''), Number(r.fy ?? 0), 'orders_fy', Number(r.orders ?? 0)));
 
       const years = [...yearsSet].sort((a, b) => a - b);
-      const sorted: DeclineRow[] = [...rowsMap.values()].sort((a, b) => a.part_num.localeCompare(b.part_num));
-      sorted.forEach((r) => years.forEach((fy) => {
-        if (r[`revenue_fy_${fy}`] == null) r[`revenue_fy_${fy}`] = 0;
-        if (r[`orders_fy_${fy}`] == null) r[`orders_fy_${fy}`] = 0;
-      }));
+      const dir = sortDir === 'asc' ? 1 : -1;
+      const sorted: DeclineRow[] = [...rowsMap.values()].sort((a, b) => (Number(a[rankBy]) - Number(b[rankBy])) * dir);
+      sorted.forEach((r) => years.forEach((fy) => { if (r[`revenue_fy_${fy}`] == null) r[`revenue_fy_${fy}`] = 0; if (r[`orders_fy_${fy}`] == null) r[`orders_fy_${fy}`] = 0; }));
 
       setRows(sorted);
       setFyColumns(years);
     });
-  }, [filters, k, m, minPastRevenue, minPastOrders, maxRevRatio, maxOrdRatio, logic, selectedLabels]);
+  }, [filters, k, m, minPastRevenue, minPastOrders, maxRevRatio, maxOrdRatio, logic, selectedLabels, rankBy, sortDir]);
 
-  const chips = [
-    ...selectedCustomers.map((v) => ({ k: 'customers' as const, v })),
-    ...selectedCountries.map((v) => ({ k: 'countries' as const, v })),
-    ...selectedParts.map((v) => ({ k: 'parts' as const, v })),
-    ...selectedProdGroups.map((v) => ({ k: 'prodGroups' as const, v })),
-    ...selectedLabels.map((v) => ({ k: 'labels' as const, v }))
-  ];
-
+  const chips = [...selectedCustomers.map((v) => ({ k: 'customers' as const, v })), ...selectedCountries.map((v) => ({ k: 'countries' as const, v })), ...selectedParts.map((v) => ({ k: 'parts' as const, v })), ...selectedProdGroups.map((v) => ({ k: 'prodGroups' as const, v })), ...selectedLabels.map((v) => ({ k: 'labels' as const, v }))];
   const removeValue = (kind: 'customers' | 'countries' | 'parts' | 'prodGroups' | 'labels', value: string) => {
     if (kind === 'customers') setSelectedCustomers((x) => x.filter((v) => v !== value));
     if (kind === 'countries') setSelectedCountries((x) => x.filter((v) => v !== value));
@@ -231,20 +196,14 @@ export function DeclinePage() {
   };
 
   return <div>
-    <PageHeader title="Labels Model" subtitle="Classify parts as Declining/Stable/Growing/New/Inactive." actions={<div className="grid grid-cols-4 gap-2 items-end">
+    <PageHeader title="Labels Model" subtitle="Classify parts as Declining/Stable/Growing/New/Inactive." actions={<div className="grid grid-cols-3 gap-2 items-end">
       <label className="text-xs text-[var(--text-muted)]">Recent FY window (k)<input type="number" value={k} onChange={(e) => setK(Number(e.target.value || 2))} className="card w-full px-2 py-1 mt-1" /></label>
       <label className="text-xs text-[var(--text-muted)]">Past FY window (m)<input type="number" value={m} onChange={(e) => setM(Number(e.target.value || 3))} className="card w-full px-2 py-1 mt-1" /></label>
-      <label className="text-xs text-[var(--text-muted)]">Min Past Revenue<input type="number" value={minPastRevenue} onChange={(e) => setMinPastRevenue(Number(e.target.value || 10000))} className="card w-full px-2 py-1 mt-1" /></label>
-      <label className="text-xs text-[var(--text-muted)]">Min Past Orders<input type="number" value={minPastOrders} onChange={(e) => setMinPastOrders(Number(e.target.value || 5))} className="card w-full px-2 py-1 mt-1" /></label>
-      <label className="text-xs text-[var(--text-muted)]">Max Revenue Ratio<input type="number" value={maxRevRatio} onChange={(e) => setMaxRevRatio(Number(e.target.value || 0.5))} className="card w-full px-2 py-1 mt-1" /></label>
-      <label className="text-xs text-[var(--text-muted)]">Max Orders Ratio<input type="number" value={maxOrdRatio} onChange={(e) => setMaxOrdRatio(Number(e.target.value || 0.5))} className="card w-full px-2 py-1 mt-1" /></label>
-      <label className="text-xs text-[var(--text-muted)]">Decline Logic<select value={logic} onChange={(e) => setLogic(e.target.value as 'AND' | 'OR')} className="card px-2 py-1 block w-full mt-1"><option>AND</option><option>OR</option></select></label>
       <label className="text-xs text-[var(--text-muted)]">Period<select value={periodMode} onChange={(e) => setPeriodMode(e.target.value as PeriodMode)} className="card px-2 py-1 block w-full mt-1"><option value="all">All</option><option value="after">After (month)</option><option value="before">Before (month)</option><option value="between">Between (months)</option></select></label>
     </div>} />
 
     <section className="card p-3 mb-3">
       <h3 className="font-semibold mb-2">Filters</h3>
-      <p className="text-xs text-[var(--text-muted)] mb-2">Tip: tick multiple values in each filter to combine selections freely.</p>
       <div className="grid lg:grid-cols-5 gap-3">
         <div className="space-y-2"><input value={customerSearch} onChange={(e) => setCustomerSearch(e.target.value)} placeholder="Search customer" className="card w-full px-2 py-1 text-xs" /><MultiPick label="Customers" options={customerOptions} values={selectedCustomers} onChange={setSelectedCustomers} /></div>
         <div className="space-y-2"><input value={countrySearch} onChange={(e) => setCountrySearch(e.target.value)} placeholder="Search country" className="card w-full px-2 py-1 text-xs" /><MultiPick label="Countries" options={countryOptions} values={selectedCountries} onChange={setSelectedCountries} /></div>
@@ -254,6 +213,17 @@ export function DeclinePage() {
       </div>
       <div className="grid md:grid-cols-4 gap-2 mt-3">
         <label className="text-xs text-[var(--text-muted)]">LineDesc contains<input value={searchText} onChange={(e) => setSearchText(e.target.value)} className="card w-full px-2 py-1 mt-1" /></label>
+        <label className="text-xs text-[var(--text-muted)]">Rank by<select value={rankBy} onChange={(e) => setRankBy(e.target.value as RankMetric)} className="card w-full px-2 py-1 mt-1"><option value="revenue">Revenue</option><option value="orders">Orders</option><option value="profit">Profit</option><option value="margin">Profit %</option><option value="revenue_ratio">Revenue Ratio</option><option value="orders_ratio">Orders Ratio</option></select></label>
+        <label className="text-xs text-[var(--text-muted)]">Order<select value={sortDir} onChange={(e) => setSortDir(e.target.value as SortDir)} className="card w-full px-2 py-1 mt-1"><option value="desc">Descending</option><option value="asc">Ascending</option></select></label>
+      </div>
+      <div className="grid md:grid-cols-4 gap-2 mt-3">
+        <label className="text-xs text-[var(--text-muted)]">Min Past Revenue<input type="number" value={minPastRevenue} onChange={(e) => setMinPastRevenue(Number(e.target.value || 10000))} className="card w-full px-2 py-1 mt-1" /></label>
+        <label className="text-xs text-[var(--text-muted)]">Min Past Orders<input type="number" value={minPastOrders} onChange={(e) => setMinPastOrders(Number(e.target.value || 5))} className="card w-full px-2 py-1 mt-1" /></label>
+        <label className="text-xs text-[var(--text-muted)]">Max Revenue Ratio<input type="number" value={maxRevRatio} onChange={(e) => setMaxRevRatio(Number(e.target.value || 0.5))} className="card w-full px-2 py-1 mt-1" /></label>
+        <label className="text-xs text-[var(--text-muted)]">Max Orders Ratio<input type="number" value={maxOrdRatio} onChange={(e) => setMaxOrdRatio(Number(e.target.value || 0.5))} className="card w-full px-2 py-1 mt-1" /></label>
+      </div>
+      <div className="grid md:grid-cols-4 gap-2 mt-3">
+        <label className="text-xs text-[var(--text-muted)]">Decline Logic<select value={logic} onChange={(e) => setLogic(e.target.value as 'AND' | 'OR')} className="card px-2 py-1 block w-full mt-1"><option>AND</option><option>OR</option></select></label>
         {(periodMode === 'after' || periodMode === 'between') && <label className="text-xs text-[var(--text-muted)]">From YYYY-MM<input type="text" inputMode="numeric" placeholder="YYYY-MM" value={fromMonth} onChange={(e) => { const next = safeMonthInput(e.target.value); if (next !== null) setFromMonth(next); }} className="card w-full px-2 py-1 mt-1" /></label>}
         {(periodMode === 'before' || periodMode === 'between') && <label className="text-xs text-[var(--text-muted)]">To YYYY-MM<input type="text" inputMode="numeric" placeholder="YYYY-MM" value={toMonth} onChange={(e) => { const next = safeMonthInput(e.target.value); if (next !== null) setToMonth(next); }} className="card w-full px-2 py-1 mt-1" /></label>}
       </div>
@@ -262,23 +232,19 @@ export function DeclinePage() {
 
     <section className="card overflow-auto">
       <table className="w-full table-auto text-sm">
-        <thead className="bg-[var(--surface)] sticky top-0">
-          <tr className="text-left border-b border-[var(--border)]">
-            <th className="px-3 py-2">Label</th><th className="px-3 py-2">CustID</th><th className="px-3 py-2">CustName</th><th className="px-3 py-2">Country</th><th className="px-3 py-2">PartNum</th><th className="px-3 py-2">LineDesc (25)</th><th className="px-3 py-2">ProdGroup</th>
-            <th className="px-3 py-2">Revenue</th><th className="px-3 py-2">Orders</th><th className="px-3 py-2">Profit</th><th className="px-3 py-2">Margin</th>
-            <th className="px-3 py-2">Past Avg Rev</th><th className="px-3 py-2">Recent Avg Rev</th><th className="px-3 py-2">Past Avg Orders</th><th className="px-3 py-2">Recent Avg Orders</th><th className="px-3 py-2">Revenue Ratio</th><th className="px-3 py-2">Orders Ratio</th>
-            {fyColumns.map((fy) => <th key={`r-${fy}`} className="px-3 py-2">Rev {fyLabel(fy)}</th>)}
-            {fyColumns.map((fy) => <th key={`o-${fy}`} className="px-3 py-2">Ord {fyLabel(fy)}</th>)}
-          </tr>
-        </thead>
+        <thead className="bg-[var(--surface)] sticky top-0"><tr className="text-left border-b border-[var(--border)]">
+          <th className="px-3 py-2">Label</th><th className="px-3 py-2">CustID</th><th className="px-3 py-2">CustName</th><th className="px-3 py-2">Country</th><th className="px-3 py-2">PartNum</th><th className="px-3 py-2">LineDesc (25)</th><th className="px-3 py-2">ProdGroup</th>
+          <th className="px-3 py-2">Revenue</th><th className="px-3 py-2">Orders</th><th className="px-3 py-2">Profit</th><th className="px-3 py-2">Margin</th>
+          <th className="px-3 py-2">Past Avg Rev</th><th className="px-3 py-2">Recent Avg Rev</th><th className="px-3 py-2">Past Avg Orders</th><th className="px-3 py-2">Recent Avg Orders</th><th className="px-3 py-2 bg-amber-500/15">Revenue Ratio</th><th className="px-3 py-2 bg-amber-500/15">Orders Ratio</th>
+          {fyColumns.map((fy) => <th key={`r-${fy}`} className="px-3 py-2">Rev {fyLabel(fy)}</th>)}{fyColumns.map((fy) => <th key={`o-${fy}`} className="px-3 py-2">Ord {fyLabel(fy)}</th>)}
+        </tr></thead>
         <tbody>
           {rows.map((row, i) => <tr key={`${row.part_num}-${i}`} className="border-b border-[var(--border)] hover:bg-[var(--surface)]/60 align-top">
             <td className="px-3 py-2 whitespace-nowrap"><span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs ${labelClasses[row.label as RowLabel]}`}>{row.label}</span></td>
             <td className="px-3 py-2 whitespace-nowrap">{row.cust_id}</td><td className="px-3 py-2 whitespace-normal break-words">{row.cust_name}</td><td className="px-3 py-2 whitespace-nowrap">{row.country}</td><td className="px-3 py-2 whitespace-nowrap">{row.part_num}</td><td className="px-3 py-2 whitespace-normal break-words">{row.line_desc_short}</td><td className="px-3 py-2 whitespace-nowrap">{row.prod_group}</td>
             <td className="px-3 py-2 whitespace-nowrap">{currency(Number(row.revenue))}</td><td className="px-3 py-2 whitespace-nowrap">{Number(row.orders).toLocaleString()}</td><td className="px-3 py-2 whitespace-nowrap">{currency(Number(row.profit))}</td><td className="px-3 py-2 whitespace-nowrap">{pct(Number(row.margin))}</td>
-            <td className="px-3 py-2 whitespace-nowrap">{currency(Number(row.past_avg_rev))}</td><td className="px-3 py-2 whitespace-nowrap">{currency(Number(row.recent_avg_rev))}</td><td className="px-3 py-2 whitespace-nowrap">{score2(Number(row.past_avg_orders))}</td><td className="px-3 py-2 whitespace-nowrap">{score2(Number(row.recent_avg_orders))}</td><td className="px-3 py-2 whitespace-nowrap">{score2(Number(row.revenue_ratio))}</td><td className="px-3 py-2 whitespace-nowrap">{score2(Number(row.orders_ratio))}</td>
-            {fyColumns.map((fy) => <td key={`rv-${i}-${fy}`} className="px-3 py-2 whitespace-nowrap">{currency(Number(row[`revenue_fy_${fy}`] ?? 0))}</td>)}
-            {fyColumns.map((fy) => <td key={`ov-${i}-${fy}`} className="px-3 py-2 whitespace-nowrap">{Number(row[`orders_fy_${fy}`] ?? 0).toLocaleString()}</td>)}
+            <td className="px-3 py-2 whitespace-nowrap">{currency(Number(row.past_avg_rev))}</td><td className="px-3 py-2 whitespace-nowrap">{currency(Number(row.recent_avg_rev))}</td><td className="px-3 py-2 whitespace-nowrap">{score2(Number(row.past_avg_orders))}</td><td className="px-3 py-2 whitespace-nowrap">{score2(Number(row.recent_avg_orders))}</td><td className="px-3 py-2 whitespace-nowrap bg-amber-500/10 font-semibold">{score2(Number(row.revenue_ratio))}</td><td className="px-3 py-2 whitespace-nowrap bg-amber-500/10 font-semibold">{score2(Number(row.orders_ratio))}</td>
+            {fyColumns.map((fy) => <td key={`rv-${i}-${fy}`} className="px-3 py-2 whitespace-nowrap">{currency(Number(row[`revenue_fy_${fy}`] ?? 0))}</td>)}{fyColumns.map((fy) => <td key={`ov-${i}-${fy}`} className="px-3 py-2 whitespace-nowrap">{Number(row[`orders_fy_${fy}`] ?? 0).toLocaleString()}</td>)}
           </tr>)}
         </tbody>
       </table>
