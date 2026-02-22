@@ -160,14 +160,8 @@ export function ExplorerGraphicDetailPage() {
     <section className="card p-3 h-[34rem] mb-4"><h3 className="font-semibold mb-2">Expanded Chart</h3><ResponsiveContainer>{renderExpanded()}</ResponsiveContainer></section>
 
     <section className="card p-3 mb-4">
-      <h3 className="font-semibold mb-2">Revenue Mix (donut + top contributors)</h3>
-      <div className="grid lg:grid-cols-[1fr_320px] gap-3 items-stretch">
-        <div className="h-[22rem]"><ResponsiveContainer><PieChart><Pie data={pieRows} dataKey="revenue" nameKey="part_num" innerRadius={85} outerRadius={135}>{pieRows.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}</Pie><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /></PieChart></ResponsiveContainer></div>
-        <div className="card p-2 overflow-auto h-[22rem]">
-          <div className="text-xs text-[var(--text-muted)] mb-2">Legend / contribution</div>
-          <div className="space-y-1">{pieRows.map((r, i) => <div key={r.part_num} className="flex items-center justify-between gap-2 text-xs"><span className="inline-flex items-center gap-2 min-w-0"><span className="w-3 h-3 rounded-sm" style={{ backgroundColor: COLORS[i % COLORS.length] }} /><span className="truncate">{r.part_num}</span></span><span className="whitespace-nowrap">{currency(r.revenue)}</span></div>)}</div>
-        </div>
-      </div>
+      <h3 className="font-semibold mb-2">Revenue Mix (donut)</h3>
+      <div className="h-[22rem]"><ResponsiveContainer><PieChart><Pie data={pieRows} dataKey="revenue" nameKey="part_num" innerRadius={85} outerRadius={135}>{pieRows.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}</Pie><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /></PieChart></ResponsiveContainer></div>
     </section>
 
     <section className="card overflow-auto">
