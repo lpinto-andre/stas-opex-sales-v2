@@ -3,6 +3,7 @@ import * as duckdb from '@duckdb/duckdb-wasm';
 type BundleDef = { mainModule: string; mainWorker: string; pthreadWorker?: string };
 
 let db: duckdb.AsyncDuckDB | null = null;
+let dbWorker: Worker | null = null;
 let queryQueue: Promise<unknown> = Promise.resolve();
 
 const MANUAL_BUNDLES: Record<'mvp' | 'eh', BundleDef> = {
@@ -10,17 +11,23 @@ const MANUAL_BUNDLES: Record<'mvp' | 'eh', BundleDef> = {
   eh: { mainModule: '/duckdb/duckdb-eh.wasm', mainWorker: '/duckdb/duckdb-browser-eh.worker.js', pthreadWorker: '/duckdb/duckdb-browser-eh.pthread.worker.js' }
 };
 
+function resetDb() {
+  try { dbWorker?.terminate(); } catch { /* ignore */ }
+  dbWorker = null;
+  db = null;
+}
+
 export async function getDb() {
   if (db) return db;
   try {
     const preferred: BundleDef = typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated ? MANUAL_BUNDLES.eh : MANUAL_BUNDLES.mvp;
-    const worker = new Worker(preferred.mainWorker);
+    dbWorker = new Worker(preferred.mainWorker);
     const logger = new duckdb.ConsoleLogger();
-    db = new duckdb.AsyncDuckDB(logger, worker);
+    db = new duckdb.AsyncDuckDB(logger, dbWorker);
     await db.instantiate(preferred.mainModule, preferred.pthreadWorker);
     return db;
   } catch (error) {
-    db = null;
+    resetDb();
     const details = error instanceof Error ? error.message : String(error);
     throw new Error(`DuckDB initialization failed. Ensure local duckdb assets are available in /public/duckdb. Details: ${details}`);
   }
@@ -42,8 +49,17 @@ function enqueue<T>(task: () => Promise<T>): Promise<T> {
   return next;
 }
 
+async function runWithRetry<T>(task: () => Promise<T>): Promise<T> {
+  try {
+    return await task();
+  } catch {
+    resetDb();
+    return task();
+  }
+}
+
 export async function buildModel(dataBytes: Uint8Array) {
-  return enqueue(async () => {
+  return enqueue(() => runWithRetry(async () => {
     const adb = await getDb();
     await adb.registerFileBuffer('pdr.ndjson', dataBytes);
     await withConnection(async (conn) => {
@@ -56,21 +72,21 @@ export async function buildModel(dataBytes: Uint8Array) {
       await conn.query(`CREATE TABLE order_line_first AS SELECT order_line_id, MIN(invoice_date) AS first_invoice_date, CASE WHEN EXTRACT(MONTH FROM MIN(invoice_date)) >= 5 THEN EXTRACT(YEAR FROM MIN(invoice_date)) + 1 ELSE EXTRACT(YEAR FROM MIN(invoice_date)) END AS first_invoice_fy FROM pdr_clean GROUP BY order_line_id`);
       await conn.query(`CREATE TABLE pdr_enriched AS SELECT c.*, CASE WHEN c.cost_present THEN c.amount - c.cost ELSE NULL END AS profit, CASE WHEN c.cost_present AND c.amount <> 0 THEN (c.amount - c.cost) / c.amount ELSE NULL END AS profit_pct, o.first_invoice_date AS order_line_first_invoice_date, o.first_invoice_fy AS order_line_fy FROM pdr_clean c LEFT JOIN order_line_first o USING(order_line_id)`);
     });
-  });
+  }));
 }
 
 export async function dropAllTables() {
-  return enqueue(async () => withConnection(async (conn) => {
+  return enqueue(() => runWithRetry(async () => withConnection(async (conn) => {
     await conn.query('DROP TABLE IF EXISTS pdr_enriched');
     await conn.query('DROP TABLE IF EXISTS order_line_first');
     await conn.query('DROP TABLE IF EXISTS pdr_clean');
     await conn.query('DROP TABLE IF EXISTS pdr_raw');
-  }));
+  })));
 }
 
 export async function queryRows<T extends Record<string, unknown>>(sql: string): Promise<T[]> {
-  return enqueue(async () => withConnection(async (conn) => {
+  return enqueue(() => runWithRetry(async () => withConnection(async (conn) => {
     const result = await conn.query(sql);
     return result.toArray().map((row) => row.toJSON() as T);
-  }));
+  })));
 }

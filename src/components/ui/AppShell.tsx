@@ -22,8 +22,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         setRestoring(true);
         const cached = await loadDatasetPackage();
         if (!cached) return;
-        await buildModel(cached.data);
         const meta = cached.meta as Record<string, unknown>;
+        try {
+          await buildModel(cached.data);
+        } catch (error) {
+          console.warn('Cached dataset model rebuild failed; keeping metadata loaded.', error);
+        }
         setDataset({
           loadedAt: String(meta.loadedAt ?? new Date().toISOString()),
           rowCount: Number(meta.rowCount ?? 0),
