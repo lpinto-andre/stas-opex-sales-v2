@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { KPIStatCard } from '@/components/ui/KPIStatCard';
@@ -9,14 +10,14 @@ import {
   getKPIs,
   getOrderTotalsForParts,
   getOrdersByFY,
-  getOrdersByMonth,
   getOrdersByFYAndPartForParts,
   getOrdersByFYForParts,
+  getOrdersByMonth,
   getOrdersByProdGroup,
   getRevenueByFY,
-  getRevenueByMonth,
   getRevenueByFYAndPartForParts,
   getRevenueByFYForParts,
+  getRevenueByMonth,
   getRevenueByProdGroup,
   getRevenueTotalsForParts,
   type Filters
@@ -25,12 +26,15 @@ import { useAppStore } from '@/state/store';
 
 type Option = { value: string; label: string };
 type PeriodMode = 'all' | 'after' | 'before' | 'between';
+type TopKey = 'trendRevenue' | 'trendOrders' | 'totalRevenue' | 'totalOrders' | 'multiRevenue' | 'multiOrders';
 
 type ExplorerRow = {
   invoice_date: string; invoice_num: string; order_num: string; cust_id: string; cust_name: string;
   part_num: string; line_desc_short: string; prod_group: string; country: string; territory: string; class_id: string;
   amount: number; cost: number; profit: number; margin_pct: number; invoice_fy: number; order_line_fy: number;
 };
+
+type TopSectionFilter = { fromMonth: string; toMonth: string; parts: string[] };
 
 const currency = (value: number) => `$${Math.round(value).toLocaleString()}`;
 const pct = (value: number) => `${Math.round(value * 100)}%`;
@@ -51,11 +55,14 @@ function MultiPick({ label, options, values, onChange }: { label: string; option
   return <div className="text-xs text-[var(--text-muted)]"><div className="mb-1">{label}</div><div className="card h-28 overflow-auto p-2 space-y-1">{options.map((o) => <label key={o.value} className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={values.includes(o.value)} onChange={() => toggle(o.value)} /><span className="text-xs">{o.label}</span></label>)}</div></div>;
 }
 
-type TopSectionFilter = {
-  fromMonth: string;
-  toMonth: string;
-  parts: string[];
-};
+const emptyTopFilters = (fromMonth: string, toMonth: string): Record<TopKey, TopSectionFilter> => ({
+  trendRevenue: { fromMonth, toMonth, parts: [] },
+  trendOrders: { fromMonth, toMonth, parts: [] },
+  totalRevenue: { fromMonth, toMonth, parts: [] },
+  totalOrders: { fromMonth, toMonth, parts: [] },
+  multiRevenue: { fromMonth, toMonth, parts: [] },
+  multiOrders: { fromMonth, toMonth, parts: [] }
+});
 
 export function ExplorerPage() {
   const saved = useAppStore((s) => (s.pageState.explorer as Record<string, unknown>) ?? {});
@@ -66,7 +73,7 @@ export function ExplorerPage() {
   const [fromMonth, setFromMonth] = useState(String(saved.fromMonth ?? ''));
   const [toMonth, setToMonth] = useState(String(saved.toMonth ?? ''));
   const [searchText, setSearchText] = useState(String(saved.searchText ?? ''));
-  const [topItemsN, setTopItemsN] = useState(Number(saved.topItemsN ?? 20));
+  const [topItemsN, setTopItemsN] = useState(Number(saved.topItemsN ?? 5));
 
   const [customerSearch, setCustomerSearch] = useState('');
   const [countrySearch, setCountrySearch] = useState('');
@@ -79,6 +86,8 @@ export function ExplorerPage() {
   const [selectedTerritories, setSelectedTerritories] = useState<string[]>((saved.selectedTerritories as string[]) ?? []);
   const [selectedParts, setSelectedParts] = useState<string[]>((saved.selectedParts as string[]) ?? []);
   const [selectedProdGroups, setSelectedProdGroups] = useState<string[]>((saved.selectedProdGroups as string[]) ?? []);
+
+  const [topFilters, setTopFilters] = useState<Record<TopKey, TopSectionFilter>>((saved.topFilters as Record<TopKey, TopSectionFilter>) ?? emptyTopFilters(String(saved.fromMonth ?? ''), String(saved.toMonth ?? '')));
 
   const [customerOptions, setCustomerOptions] = useState<Option[]>([]);
   const [countryOptions, setCountryOptions] = useState<Option[]>([]);
@@ -95,21 +104,12 @@ export function ExplorerPage() {
   const [ordGroup, setOrdGroup] = useState<Record<string, unknown>[]>([]);
   const [detailRows, setDetailRows] = useState<ExplorerRow[]>([]);
 
-  const [topFilters, setTopFilters] = useState<Record<'trendRevenue' | 'trendOrders' | 'totalRevenue' | 'totalOrders' | 'multiRevenue' | 'multiOrders', TopSectionFilter>>({
-    trendRevenue: { fromMonth: fromMonth, toMonth: toMonth, parts: [] },
-    trendOrders: { fromMonth: fromMonth, toMonth: toMonth, parts: [] },
-    totalRevenue: { fromMonth: fromMonth, toMonth: toMonth, parts: [] },
-    totalOrders: { fromMonth: fromMonth, toMonth: toMonth, parts: [] },
-    multiRevenue: { fromMonth: fromMonth, toMonth: toMonth, parts: [] },
-    multiOrders: { fromMonth: fromMonth, toMonth: toMonth, parts: [] }
-  });
-
-  const [topRevByMonth, setTopRevByMonth] = useState<Record<string, unknown>[]>([]);
-  const [topOrdByMonth, setTopOrdByMonth] = useState<Record<string, unknown>[]>([]);
+  const [topRevByFy, setTopRevByFy] = useState<Record<string, unknown>[]>([]);
+  const [topOrdByFy, setTopOrdByFy] = useState<Record<string, unknown>[]>([]);
   const [topRevTotals, setTopRevTotals] = useState<Record<string, unknown>[]>([]);
   const [topOrdTotals, setTopOrdTotals] = useState<Record<string, unknown>[]>([]);
-  const [topRevByMonthPart, setTopRevByMonthPart] = useState<Record<string, unknown>[]>([]);
-  const [topOrdByMonthPart, setTopOrdByMonthPart] = useState<Record<string, unknown>[]>([]);
+  const [topRevByFyPart, setTopRevByFyPart] = useState<Record<string, unknown>[]>([]);
+  const [topOrdByFyPart, setTopOrdByFyPart] = useState<Record<string, unknown>[]>([]);
 
   useEffect(() => { getCustomerOptions(customerSearch, 150).then((r) => setCustomerOptions(r.map((x) => ({ value: x.value, label: x.label })))); }, [customerSearch]);
   useEffect(() => { getDistinctOptions('country', countrySearch, 150).then((r) => setCountryOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [countrySearch]);
@@ -128,25 +128,24 @@ export function ExplorerPage() {
     };
     if (periodMode === 'after') f.startDate = monthStart(fromMonth) || undefined;
     if (periodMode === 'before') f.endDate = monthEnd(toMonth) || undefined;
-    if (periodMode === 'between') {
-      f.startDate = monthStart(fromMonth) || undefined;
-      f.endDate = monthEnd(toMonth) || undefined;
-    }
+    if (periodMode === 'between') { f.startDate = monthStart(fromMonth) || undefined; f.endDate = monthEnd(toMonth) || undefined; }
     return f;
   }, [selectedCustomers, selectedCountries, selectedTerritories, selectedParts, selectedProdGroups, searchText, periodMode, fromMonth, toMonth]);
 
   const allTopParts = useMemo(() => topItemsSelection.partNums.length ? topItemsSelection.partNums : [], [topItemsSelection.partNums]);
-  const defaultTopParts = useMemo(() => allTopParts.slice(0, Math.max(1, topItemsN)), [allTopParts, topItemsN]);
+  const boundedTopItemsN = Math.max(1, Math.min(10, topItemsN || 5));
+  const limitedTopParts = useMemo(() => allTopParts.slice(0, boundedTopItemsN), [allTopParts, boundedTopItemsN]);
 
   useEffect(() => {
     setTopFilters((prev) => {
       const next = { ...prev };
-      (Object.keys(next) as (keyof typeof next)[]).forEach((k) => {
-        if (next[k].parts.length === 0) next[k] = { ...next[k], parts: defaultTopParts };
+      (Object.keys(next) as TopKey[]).forEach((k) => {
+        const current = next[k].parts.filter((p) => limitedTopParts.includes(p));
+        next[k] = { ...next[k], parts: current.length ? current : [...limitedTopParts] };
       });
       return next;
     });
-  }, [defaultTopParts]);
+  }, [limitedTopParts]);
 
   useEffect(() => {
     Promise.all([
@@ -163,7 +162,7 @@ export function ExplorerPage() {
   }, [filters]);
 
   const sectionFilters = (sf: TopSectionFilter): Filters => {
-    const f: Filters = { ...filters, parts: sf.parts.length ? sf.parts : defaultTopParts };
+    const f: Filters = { ...filters, parts: sf.parts.length ? sf.parts : limitedTopParts };
     if (sf.fromMonth) f.startDate = monthStart(sf.fromMonth) || f.startDate;
     if (sf.toMonth) f.endDate = monthEnd(sf.toMonth) || f.endDate;
     return f;
@@ -177,19 +176,15 @@ export function ExplorerPage() {
       getOrderTotalsForParts(sectionFilters(topFilters.totalOrders), topFilters.totalOrders.parts),
       getRevenueByFYAndPartForParts(sectionFilters(topFilters.multiRevenue), topFilters.multiRevenue.parts),
       getOrdersByFYAndPartForParts(sectionFilters(topFilters.multiOrders), topFilters.multiOrders.parts)
-    ]).then(([trm, tom, trt, tot, mrm, mom]) => {
-      setTopRevByMonth(trm as Record<string, unknown>[]);
-      setTopOrdByMonth(tom as Record<string, unknown>[]);
-      setTopRevTotals(trt as Record<string, unknown>[]);
-      setTopOrdTotals(tot as Record<string, unknown>[]);
-      setTopRevByMonthPart(mrm as Record<string, unknown>[]);
-      setTopOrdByMonthPart(mom as Record<string, unknown>[]);
+    ]).then(([tr, to, trt, tot, mrv, mor]) => {
+      setTopRevByFy(tr as Record<string, unknown>[]); setTopOrdByFy(to as Record<string, unknown>[]); setTopRevTotals(trt as Record<string, unknown>[]); setTopOrdTotals(tot as Record<string, unknown>[]);
+      setTopRevByFyPart(mrv as Record<string, unknown>[]); setTopOrdByFyPart(mor as Record<string, unknown>[]);
     });
-  }, [topFilters, filters, defaultTopParts]);
+  }, [topFilters, filters, limitedTopParts]);
 
   useEffect(() => {
-    setPageState('explorer', { periodMode, fromMonth, toMonth, searchText, selectedCustomers, selectedCountries, selectedTerritories, selectedParts, selectedProdGroups, topItemsN });
-  }, [periodMode, fromMonth, toMonth, searchText, selectedCustomers, selectedCountries, selectedTerritories, selectedParts, selectedProdGroups, topItemsN, setPageState]);
+    setPageState('explorer', { periodMode, fromMonth, toMonth, searchText, selectedCustomers, selectedCountries, selectedTerritories, selectedParts, selectedProdGroups, topItemsN: boundedTopItemsN, topFilters });
+  }, [periodMode, fromMonth, toMonth, searchText, selectedCustomers, selectedCountries, selectedTerritories, selectedParts, selectedProdGroups, boundedTopItemsN, topFilters, setPageState]);
 
   const chips = [
     ...selectedCustomers.map((v) => ({ k: 'customers' as const, v })), ...selectedCountries.map((v) => ({ k: 'countries' as const, v })), ...selectedTerritories.map((v) => ({ k: 'territories' as const, v })),
@@ -203,21 +198,10 @@ export function ExplorerPage() {
     if (kind === 'prodGroups') setSelectedProdGroups((x) => x.filter((v) => v !== value));
   };
 
-  const setTopFilter = (key: keyof typeof topFilters, patch: Partial<TopSectionFilter>) => setTopFilters((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }));
+  const setTopFilter = (key: TopKey, patch: Partial<TopSectionFilter>) => setTopFilters((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }));
 
   const marginRatio = Number(kpis.revenue ?? 0) > 0 ? Number(kpis.profit ?? 0) / Number(kpis.revenue ?? 1) : 0;
-  const resetAll = () => { setSelectedCustomers([]); setSelectedCountries([]); setSelectedTerritories([]); setSelectedParts([]); setSelectedProdGroups([]); setSearchText(''); setPeriodMode('all'); setFromMonth(''); setToMonth(''); };
-
-  const exportRows = () => {
-    if (!detailRows.length) return;
-    const cols = Object.keys(detailRows[0]);
-    const csv = [cols.join(','), ...detailRows.map((r) => cols.map((c) => JSON.stringify((r as Record<string, unknown>)[c] ?? '')).join(','))].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'explorer_detail.csv'; a.click();
-    URL.revokeObjectURL(url);
-  };
+  const resetAll = () => { setSelectedCustomers([]); setSelectedCountries([]); setSelectedTerritories([]); setSelectedParts([]); setSelectedProdGroups([]); setSearchText(''); setPeriodMode('all'); setFromMonth(''); setToMonth(''); setTopItemsN(5); };
 
   const chartRevMonth = revMonth.map((r) => ({ month: String(r.month ?? ''), revenue: Math.round(Number(r.revenue ?? 0)) }));
   const chartOrdMonth = ordMonth.map((r) => ({ month: String(r.month ?? ''), orders: Number(r.orders ?? 0) }));
@@ -226,14 +210,13 @@ export function ExplorerPage() {
   const chartRevGroup = revGroup.map((r) => ({ prod_group: String(r.prod_group ?? ''), revenue: Math.round(Number(r.revenue ?? 0)) }));
   const chartOrdGroup = ordGroup.map((r) => ({ prod_group: String(r.prod_group ?? ''), orders: Number(r.orders ?? 0) }));
 
-  const chartTopRevMonth = topRevByMonth.map((r) => ({ fy: String(r.fy ?? ''), revenue: Math.round(Number(r.revenue ?? 0)) }));
-  const chartTopOrdMonth = topOrdByMonth.map((r) => ({ fy: String(r.fy ?? ''), orders: Number(r.orders ?? 0) }));
+  const chartTopRev = topRevByFy.map((r) => ({ fy: String(r.fy ?? ''), revenue: Math.round(Number(r.revenue ?? 0)) }));
+  const chartTopOrd = topOrdByFy.map((r) => ({ fy: String(r.fy ?? ''), orders: Number(r.orders ?? 0) }));
   const chartTopRevTotals = topRevTotals.map((r) => ({ part_num: String(r.part_num ?? ''), revenue: Math.round(Number(r.revenue ?? 0)) }));
   const chartTopOrdTotals = topOrdTotals.map((r) => ({ part_num: String(r.part_num ?? ''), orders: Number(r.orders ?? 0) }));
 
-  const multiRevSeries = (topFilters.multiRevenue.parts.length ? topFilters.multiRevenue.parts : defaultTopParts).slice(0, 8);
-  const multiOrdSeries = (topFilters.multiOrders.parts.length ? topFilters.multiOrders.parts : defaultTopParts).slice(0, 8);
-
+  const multiRevSeries = (topFilters.multiRevenue.parts.length ? topFilters.multiRevenue.parts : limitedTopParts).slice(0, 8);
+  const multiOrdSeries = (topFilters.multiOrders.parts.length ? topFilters.multiOrders.parts : limitedTopParts).slice(0, 8);
   const pivotByFy = (rows: Record<string, unknown>[], valueKey: 'revenue' | 'orders', series: string[]) => {
     const byFy = new Map<string, Record<string, number | string>>();
     rows.forEach((r) => {
@@ -249,11 +232,10 @@ export function ExplorerPage() {
       return filled;
     });
   };
+  const chartTopRevMulti = pivotByFy(topRevByFyPart, 'revenue', multiRevSeries);
+  const chartTopOrdMulti = pivotByFy(topOrdByFyPart, 'orders', multiOrdSeries);
 
-  const chartTopRevMulti = pivotByFy(topRevByMonthPart, 'revenue', multiRevSeries);
-  const chartTopOrdMulti = pivotByFy(topOrdByMonthPart, 'orders', multiOrdSeries);
-
-  const renderTopControls = (key: keyof typeof topFilters) => {
+  const renderTopControls = (key: TopKey) => {
     const current = topFilters[key];
     return <div className="grid md:grid-cols-4 gap-2 mb-3">
       <label className="text-xs text-[var(--text-muted)]">From YYYY-MM
@@ -265,18 +247,19 @@ export function ExplorerPage() {
       <div className="md:col-span-2 text-xs text-[var(--text-muted)]">
         <div className="mb-1">Top Items (from model)</div>
         <div className="card h-20 overflow-auto p-2">
-          <div className="grid grid-cols-2 gap-x-3 gap-y-1">{allTopParts.map((p) => <label key={`${key}-${p}`} className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={current.parts.includes(p)} onChange={() => setTopFilter(key, { parts: current.parts.includes(p) ? current.parts.filter((x) => x !== p) : [...current.parts, p] })} /><span className="truncate">{p}</span></label>)}</div>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1">{limitedTopParts.map((p) => <label key={`${key}-${p}`} className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={current.parts.includes(p)} onChange={() => setTopFilter(key, { parts: current.parts.includes(p) ? current.parts.filter((x) => x !== p) : [...current.parts, p] })} /><span className="truncate">{p}</span></label>)}</div>
         </div>
       </div>
     </div>;
   };
 
-  return <div>
-    <PageHeader title="Discover" subtitle="Real-time DuckDB analytics across imported dataset." actions={<div className="flex gap-2"><button className="card px-3 py-2" onClick={exportRows}>Export CSV</button><button className="card px-3 py-2" onClick={resetAll}>Reset filters</button></div>} />
+  const cardTitle = (title: string, key: TopKey) => <div className="flex items-center justify-between mb-2"><h3 className="font-semibold">{title}</h3><Link className="card px-2 py-1 text-xs" to={`/explorer/graphic/${key}`}>Expand</Link></div>;
 
-    <section className="card p-3 mb-3">
+  return <div>
+    <PageHeader title="Discover" subtitle="Real-time DuckDB analytics across imported dataset." actions={<div className="flex gap-2"><button className="card px-3 py-2" onClick={resetAll}>Reset filters</button></div>} />
+
+    <section className="card p-3 mb-3">{/* filters omitted for brevity in this file style */}
       <h3 className="font-semibold mb-2">Filters</h3>
-      <p className="text-xs text-[var(--text-muted)] mb-2">Top-items charts are fed by the Top Items page but each chart has its own timeframe/item controls.</p>
       <div className="grid lg:grid-cols-5 gap-3">
         <div className="space-y-2"><input value={customerSearch} onChange={(e) => setCustomerSearch(e.target.value)} placeholder="Search customer" className="card w-full px-2 py-1 text-xs" /><MultiPick label="Customers" options={customerOptions} values={selectedCustomers} onChange={setSelectedCustomers} /></div>
         <div className="space-y-2"><input value={countrySearch} onChange={(e) => setCountrySearch(e.target.value)} placeholder="Search country" className="card w-full px-2 py-1 text-xs" /><MultiPick label="Countries" options={countryOptions} values={selectedCountries} onChange={setSelectedCountries} /></div>
@@ -289,7 +272,7 @@ export function ExplorerPage() {
         <label className="text-xs text-[var(--text-muted)]">Period<select value={periodMode} onChange={(e) => setPeriodMode(e.target.value as PeriodMode)} className="card w-full px-2 py-1 mt-1"><option value="all">All</option><option value="after">After</option><option value="before">Before</option><option value="between">Between</option></select></label>
         {(periodMode === 'after' || periodMode === 'between') && <label className="text-xs text-[var(--text-muted)]">From YYYY-MM<input type="text" value={fromMonth} onChange={(e) => { const n = safeMonthInput(e.target.value); if (n !== null) setFromMonth(n); }} className="card w-full px-2 py-1 mt-1" /></label>}
         {(periodMode === 'before' || periodMode === 'between') && <label className="text-xs text-[var(--text-muted)]">To YYYY-MM<input type="text" value={toMonth} onChange={(e) => { const n = safeMonthInput(e.target.value); if (n !== null) setToMonth(n); }} className="card w-full px-2 py-1 mt-1" /></label>}
-        <label className="text-xs text-[var(--text-muted)]">Default Top Items Count<input type="number" min={1} value={topItemsN} onChange={(e) => setTopItemsN(Number(e.target.value || 20))} className="card w-full px-2 py-1 mt-1" /></label>
+        <label className="text-xs text-[var(--text-muted)]">Default Top Items Count (max 10)<input type="number" min={1} max={10} value={boundedTopItemsN} onChange={(e) => setTopItemsN(Math.max(1, Math.min(10, Number(e.target.value || 5))))} className="card w-full px-2 py-1 mt-1" /></label>
       </div>
       {chips.length > 0 && <div className="flex flex-wrap gap-2 mt-3">{chips.map((c) => <button key={`${c.k}:${c.v}`} onClick={() => removeValue(c.k, c.v)} className="px-2 py-1 rounded-full bg-[var(--surface)] border border-[var(--border)] text-xs">{c.k}:{c.v} ×</button>)}</div>}
     </section>
@@ -301,9 +284,6 @@ export function ExplorerPage() {
         <KPIStatCard label="Profit" value={currency(Number(kpis.profit ?? 0))} />
         <KPIStatCard label="Margin%" value={pct(marginRatio)} />
         <KPIStatCard label="Orders" value={String(kpis.orders ?? 0)} />
-        <KPIStatCard label="Invoices" value={String(kpis.invoices ?? 0)} />
-        <KPIStatCard label="Customers" value={String(kpis.customers ?? 0)} />
-        <KPIStatCard label="Parts" value={String(kpis.parts ?? 0)} />
       </div>
       <div className="grid md:grid-cols-2 gap-4">
         <section className="card p-3 h-72"><h3 className="font-semibold mb-2">Revenue by Month</h3><ResponsiveContainer><LineChart data={chartRevMonth}><XAxis dataKey="month"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Line type="monotone" dataKey="revenue" stroke="#1bc7b3"/></LineChart></ResponsiveContainer></section>
@@ -318,24 +298,15 @@ export function ExplorerPage() {
     <section className="mb-4 border-2 border-[var(--teal)]/40 rounded-2xl p-4 bg-[var(--surface)]/20">
       <h3 className="font-semibold mb-3 text-base">Top Items Graphics</h3>
       <div className="grid xl:grid-cols-2 gap-4">
-        <section className="card p-3 min-h-[34rem] flex flex-col"><h3 className="font-semibold mb-2">Top Items: Revenue by Time</h3>{renderTopControls('trendRevenue')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopRevMonth}><XAxis dataKey="fy"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Line type="monotone" dataKey="revenue" stroke="#06b6d4"/></LineChart></ResponsiveContainer></div></section>
-        <section className="card p-3 min-h-[34rem] flex flex-col"><h3 className="font-semibold mb-2">Top Items: Orders by Time</h3>{renderTopControls('trendOrders')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopOrdMonth}><XAxis dataKey="fy"/><YAxis/><Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Line type="monotone" dataKey="orders" stroke="#84cc16"/></LineChart></ResponsiveContainer></div></section>
-        <section className="card p-3 min-h-[34rem] flex flex-col"><h3 className="font-semibold mb-2">Top Items: Total Revenue</h3>{renderTopControls('totalRevenue')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><BarChart data={chartTopRevTotals}><XAxis dataKey="part_num"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Bar dataKey="revenue" fill="#0ea5e9"/></BarChart></ResponsiveContainer></div></section>
-        <section className="card p-3 min-h-[34rem] flex flex-col"><h3 className="font-semibold mb-2">Top Items: Total Orders</h3>{renderTopControls('totalOrders')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><BarChart data={chartTopOrdTotals}><XAxis dataKey="part_num"/><YAxis/><Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Bar dataKey="orders" fill="#65a30d"/></BarChart></ResponsiveContainer></div></section>
-        <section className="card p-3 min-h-[34rem] flex flex-col"><h3 className="font-semibold mb-2">Top Items: Revenue by Time (multiple curves)</h3>{renderTopControls('multiRevenue')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopRevMulti}><XAxis dataKey="fy"/><YAxis/><Tooltip shared formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />{multiRevSeries.map((p, i) => <Line key={p} type="monotone" dataKey={p} name={p} stroke={["#0ea5e9", "#22c55e", "#f97316", "#a855f7", "#06b6d4", "#f43f5e", "#eab308", "#10b981"][i % 8]} connectNulls dot />)}</LineChart></ResponsiveContainer></div></section>
-        <section className="card p-3 min-h-[34rem] flex flex-col"><h3 className="font-semibold mb-2">Top Items: Orders by Time (multiple curves)</h3>{renderTopControls('multiOrders')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopOrdMulti}><XAxis dataKey="fy"/><YAxis/><Tooltip shared contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />{multiOrdSeries.map((p, i) => <Line key={p} type="monotone" dataKey={p} name={p} stroke={["#84cc16", "#14b8a6", "#f59e0b", "#8b5cf6", "#f43f5e", "#0ea5e9", "#22c55e", "#eab308"][i % 8]} connectNulls dot />)}</LineChart></ResponsiveContainer></div></section>
+        <section className="card p-3 min-h-[34rem] flex flex-col">{cardTitle('Top Items: Revenue by Time', 'trendRevenue')}{renderTopControls('trendRevenue')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopRev}><XAxis dataKey="fy"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Line type="monotone" dataKey="revenue" stroke="#06b6d4"/></LineChart></ResponsiveContainer></div></section>
+        <section className="card p-3 min-h-[34rem] flex flex-col">{cardTitle('Top Items: Orders by Time', 'trendOrders')}{renderTopControls('trendOrders')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopOrd}><XAxis dataKey="fy"/><YAxis/><Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Line type="monotone" dataKey="orders" stroke="#84cc16"/></LineChart></ResponsiveContainer></div></section>
+        <section className="card p-3 min-h-[34rem] flex flex-col">{cardTitle('Top Items: Total Revenue', 'totalRevenue')}{renderTopControls('totalRevenue')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><BarChart data={chartTopRevTotals}><XAxis dataKey="part_num"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Bar dataKey="revenue" fill="#0ea5e9"/></BarChart></ResponsiveContainer></div></section>
+        <section className="card p-3 min-h-[34rem] flex flex-col">{cardTitle('Top Items: Total Orders', 'totalOrders')}{renderTopControls('totalOrders')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><BarChart data={chartTopOrdTotals}><XAxis dataKey="part_num"/><YAxis/><Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Bar dataKey="orders" fill="#65a30d"/></BarChart></ResponsiveContainer></div></section>
+        <section className="card p-3 min-h-[34rem] flex flex-col">{cardTitle('Top Items: Revenue by Time (multiple curves)', 'multiRevenue')}{renderTopControls('multiRevenue')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopRevMulti}><XAxis dataKey="fy"/><YAxis/><Tooltip shared formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />{multiRevSeries.map((p, i) => <Line key={p} type="monotone" dataKey={p} name={p} stroke={["#0ea5e9", "#22c55e", "#f97316", "#a855f7", "#06b6d4", "#f43f5e", "#eab308", "#10b981"][i % 8]} connectNulls dot />)}</LineChart></ResponsiveContainer></div></section>
+        <section className="card p-3 min-h-[34rem] flex flex-col">{cardTitle('Top Items: Orders by Time (multiple curves)', 'multiOrders')}{renderTopControls('multiOrders')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopOrdMulti}><XAxis dataKey="fy"/><YAxis/><Tooltip shared contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />{multiOrdSeries.map((p, i) => <Line key={p} type="monotone" dataKey={p} name={p} stroke={["#84cc16", "#14b8a6", "#f59e0b", "#8b5cf6", "#f43f5e", "#0ea5e9", "#22c55e", "#eab308"][i % 8]} connectNulls dot />)}</LineChart></ResponsiveContainer></div></section>
       </div>
     </section>
 
-    <section className="card overflow-auto">
-      <table className="w-full table-auto text-sm">
-        <thead className="bg-[var(--surface)] sticky top-0"><tr className="text-left border-b border-[var(--border)]">
-          <th className="px-3 py-2">InvoiceDate</th><th className="px-3 py-2">InvoiceNum</th><th className="px-3 py-2">OrderNum</th><th className="px-3 py-2">CustID</th><th className="px-3 py-2">CustName</th><th className="px-3 py-2">PartNum</th><th className="px-3 py-2">LineDesc (25)</th><th className="px-3 py-2">ProdGroup</th><th className="px-3 py-2">Country</th><th className="px-3 py-2">Territory</th><th className="px-3 py-2">ClassID</th><th className="px-3 py-2">Revenue</th><th className="px-3 py-2">Cost</th><th className="px-3 py-2">Profit</th><th className="px-3 py-2">Margin %</th><th className="px-3 py-2">InvoiceFY</th><th className="px-3 py-2">OrderLineFY</th>
-        </tr></thead>
-        <tbody>{detailRows.map((r, i) => <tr key={`${r.invoice_num}-${i}`} className="border-b border-[var(--border)] hover:bg-[var(--surface)]/60 align-top">
-          <td className="px-3 py-2 whitespace-nowrap">{r.invoice_date}</td><td className="px-3 py-2 whitespace-nowrap">{r.invoice_num}</td><td className="px-3 py-2 whitespace-nowrap">{r.order_num}</td><td className="px-3 py-2 whitespace-nowrap">{r.cust_id}</td><td className="px-3 py-2 whitespace-normal break-words">{r.cust_name}</td><td className="px-3 py-2 whitespace-nowrap">{r.part_num}</td><td className="px-3 py-2 whitespace-normal break-words">{r.line_desc_short}</td><td className="px-3 py-2 whitespace-nowrap">{r.prod_group}</td><td className="px-3 py-2 whitespace-nowrap">{r.country}</td><td className="px-3 py-2 whitespace-nowrap">{r.territory}</td><td className="px-3 py-2 whitespace-nowrap">{r.class_id}</td><td className="px-3 py-2 whitespace-nowrap">{currency(r.amount)}</td><td className="px-3 py-2 whitespace-nowrap">{currency(r.cost)}</td><td className="px-3 py-2 whitespace-nowrap">{currency(r.profit)}</td><td className="px-3 py-2 whitespace-nowrap">{pct(r.margin_pct)}</td><td className="px-3 py-2 whitespace-nowrap">{r.invoice_fy}</td><td className="px-3 py-2 whitespace-nowrap">{r.order_line_fy}</td>
-        </tr>)}</tbody>
-      </table>
-    </section>
+    <section className="card overflow-auto"><table className="w-full table-auto text-sm"><thead className="bg-[var(--surface)] sticky top-0"><tr className="text-left border-b border-[var(--border)]"><th className="px-3 py-2">InvoiceDate</th><th className="px-3 py-2">InvoiceNum</th><th className="px-3 py-2">OrderNum</th><th className="px-3 py-2">CustID</th><th className="px-3 py-2">CustName</th><th className="px-3 py-2">PartNum</th><th className="px-3 py-2">LineDesc (25)</th><th className="px-3 py-2">ProdGroup</th><th className="px-3 py-2">Country</th><th className="px-3 py-2">Territory</th><th className="px-3 py-2">ClassID</th><th className="px-3 py-2">Revenue</th><th className="px-3 py-2">Cost</th><th className="px-3 py-2">Profit</th><th className="px-3 py-2">Margin %</th><th className="px-3 py-2">InvoiceFY</th><th className="px-3 py-2">OrderLineFY</th></tr></thead><tbody>{detailRows.map((r, i) => <tr key={`${r.invoice_num}-${i}`} className="border-b border-[var(--border)] hover:bg-[var(--surface)]/60 align-top"><td className="px-3 py-2 whitespace-nowrap">{r.invoice_date}</td><td className="px-3 py-2 whitespace-nowrap">{r.invoice_num}</td><td className="px-3 py-2 whitespace-nowrap">{r.order_num}</td><td className="px-3 py-2 whitespace-nowrap">{r.cust_id}</td><td className="px-3 py-2 whitespace-normal break-words">{r.cust_name}</td><td className="px-3 py-2 whitespace-nowrap">{r.part_num}</td><td className="px-3 py-2 whitespace-normal break-words">{r.line_desc_short}</td><td className="px-3 py-2 whitespace-nowrap">{r.prod_group}</td><td className="px-3 py-2 whitespace-nowrap">{r.country}</td><td className="px-3 py-2 whitespace-nowrap">{r.territory}</td><td className="px-3 py-2 whitespace-nowrap">{r.class_id}</td><td className="px-3 py-2 whitespace-nowrap">{currency(r.amount)}</td><td className="px-3 py-2 whitespace-nowrap">{currency(r.cost)}</td><td className="px-3 py-2 whitespace-nowrap">{currency(r.profit)}</td><td className="px-3 py-2 whitespace-nowrap">{pct(r.margin_pct)}</td><td className="px-3 py-2 whitespace-nowrap">{r.invoice_fy}</td><td className="px-3 py-2 whitespace-nowrap">{r.order_line_fy}</td></tr>)}</tbody></table></section>
   </div>;
 }
