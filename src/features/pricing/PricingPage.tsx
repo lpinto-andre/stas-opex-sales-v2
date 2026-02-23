@@ -6,9 +6,11 @@ import { useAppStore } from '@/state/store';
 
 type Option = { value: string; label: string };
 type PeriodMode = 'all' | 'after' | 'before' | 'between';
+type RankBy = 'price' | 'cost' | 'profit' | 'profit_pct';
+type SortDir = 'desc' | 'asc';
 
 type PricingRow = {
-  invoice_date: string;
+  invoice_month: string;
   invoice_num: string;
   cust_id: string;
   cust_name: string;
@@ -50,6 +52,8 @@ export function PricingPage() {
   const [fromMonth, setFromMonth] = useState(String(saved.fromMonth ?? ''));
   const [toMonth, setToMonth] = useState(String(saved.toMonth ?? ''));
   const [searchText, setSearchText] = useState(String(saved.searchText ?? ''));
+  const [rankBy, setRankBy] = useState<RankBy>((saved.rankBy as RankBy) ?? 'profit');
+  const [order, setOrder] = useState<SortDir>((saved.order as SortDir) ?? 'desc');
 
   const [selectedCustomers, setSelectedCustomers] = useState<string[]>((saved.selectedCustomers as string[]) ?? []);
   const [selectedCountries, setSelectedCountries] = useState<string[]>((saved.selectedCountries as string[]) ?? []);
@@ -110,7 +114,7 @@ export function PricingPage() {
       setKpis(kpiRes.status === 'fulfilled' ? ((kpiRes.value as Record<string, number>) ?? {}) : {});
       if (rowsRes.status === 'fulfilled') {
         setRows((rowsRes.value as Record<string, unknown>[]).map((r) => ({
-          invoice_date: String(r.invoice_date ?? '').slice(0, 10),
+          invoice_month: String(r.invoice_date ?? '').slice(0, 7),
           invoice_num: String(r.invoice_num ?? ''),
           cust_id: String(r.cust_id ?? ''),
           cust_name: String(r.cust_name ?? ''),
@@ -134,14 +138,45 @@ export function PricingPage() {
     return () => { active = false; };
   }, [filters, costOnly]);
 
+  const rowsSorted = useMemo(() => {
+    const v = [...rows];
+    const value = (r: PricingRow) => {
+      if (rankBy === 'price') return r.amount;
+      if (rankBy === 'cost') return Number(r.cost ?? Number.NEGATIVE_INFINITY);
+      if (rankBy === 'profit') return Number(r.profit ?? Number.NEGATIVE_INFINITY);
+      return Number(r.margin_pct ?? Number.NEGATIVE_INFINITY);
+    };
+    v.sort((a, b) => order === 'desc' ? value(b) - value(a) : value(a) - value(b));
+    return v;
+  }, [rows, rankBy, order]);
+
   useEffect(() => {
-    setPageState('pricing', { costOnly, periodMode, fromMonth, toMonth, searchText, selectedCustomers, selectedCountries, selectedTerritories, selectedParts, selectedProdGroups, selectedClasses });
-  }, [costOnly, periodMode, fromMonth, toMonth, searchText, selectedCustomers, selectedCountries, selectedTerritories, selectedParts, selectedProdGroups, selectedClasses, setPageState]);
+    setPageState('pricing', { costOnly, periodMode, fromMonth, toMonth, searchText, rankBy, order, selectedCustomers, selectedCountries, selectedTerritories, selectedParts, selectedProdGroups, selectedClasses });
+  }, [costOnly, periodMode, fromMonth, toMonth, searchText, rankBy, order, selectedCustomers, selectedCountries, selectedTerritories, selectedParts, selectedProdGroups, selectedClasses, setPageState]);
+
+  const chips = [
+    ...selectedCustomers.map((v) => ({ k: 'customers' as const, v })),
+    ...selectedCountries.map((v) => ({ k: 'countries' as const, v })),
+    ...selectedTerritories.map((v) => ({ k: 'territories' as const, v })),
+    ...selectedParts.map((v) => ({ k: 'parts' as const, v })),
+    ...selectedProdGroups.map((v) => ({ k: 'prodGroups' as const, v })),
+    ...selectedClasses.map((v) => ({ k: 'classes' as const, v }))
+  ];
+  const removeValue = (kind: 'customers' | 'countries' | 'territories' | 'parts' | 'prodGroups' | 'classes', value: string) => {
+    if (kind === 'customers') setSelectedCustomers((x) => x.filter((v) => v !== value));
+    if (kind === 'countries') setSelectedCountries((x) => x.filter((v) => v !== value));
+    if (kind === 'territories') setSelectedTerritories((x) => x.filter((v) => v !== value));
+    if (kind === 'parts') setSelectedParts((x) => x.filter((v) => v !== value));
+    if (kind === 'prodGroups') setSelectedProdGroups((x) => x.filter((v) => v !== value));
+    if (kind === 'classes') setSelectedClasses((x) => x.filter((v) => v !== value));
+  };
 
   return <div>
-    <PageHeader title="Pricing & Profitability" subtitle={`Cost Included: ${costOnly ? 'Yes' : 'No'} • ${datasetMeta?.dateRange ?? ''}`} actions={<div className="grid grid-cols-2 gap-2 items-end">
+    <PageHeader title="Pricing & Profitability" subtitle={`Cost Included: ${costOnly ? 'Yes' : 'No'} • ${datasetMeta?.dateRange ?? ''}`} actions={<div className="grid grid-cols-4 gap-2 items-end">
       <label className="text-xs text-[var(--text-muted)]">Cost Included<select value={String(costOnly)} onChange={(e) => setCostOnly(e.target.value === 'true')} className="card w-full px-2 py-1 mt-1"><option value="true">Yes</option><option value="false">No</option></select></label>
       <label className="text-xs text-[var(--text-muted)]">Period<select value={periodMode} onChange={(e) => setPeriodMode(e.target.value as PeriodMode)} className="card w-full px-2 py-1 mt-1"><option value="all">All</option><option value="after">After (month)</option><option value="before">Before (month)</option><option value="between">Between (months)</option></select></label>
+      <label className="text-xs text-[var(--text-muted)]">Rank by<select value={rankBy} onChange={(e) => setRankBy(e.target.value as RankBy)} className="card w-full px-2 py-1 mt-1"><option value="price">Price</option><option value="cost">Cost</option><option value="profit">Profit</option><option value="profit_pct">Profit %</option></select></label>
+      <label className="text-xs text-[var(--text-muted)]">Order<select value={order} onChange={(e) => setOrder(e.target.value as SortDir)} className="card w-full px-2 py-1 mt-1"><option value="desc">Descending</option><option value="asc">Ascending</option></select></label>
     </div>} />
 
     {loadError && <section className="card p-3 mb-3 border-[var(--danger)]"><h3 className="font-semibold text-[var(--danger)]">Pricing analytics query failed</h3><p className="text-sm mt-1">{loadError}</p></section>}
@@ -161,6 +196,7 @@ export function PricingPage() {
         {(periodMode === 'after' || periodMode === 'between') && <label className="text-xs text-[var(--text-muted)]">From YYYY-MM<input value={fromMonth} onChange={(e) => { const n = safeMonthInput(e.target.value); if (n !== null) setFromMonth(n); }} className="card w-full px-2 py-1 mt-1" /></label>}
         {(periodMode === 'before' || periodMode === 'between') && <label className="text-xs text-[var(--text-muted)]">To YYYY-MM<input value={toMonth} onChange={(e) => { const n = safeMonthInput(e.target.value); if (n !== null) setToMonth(n); }} className="card w-full px-2 py-1 mt-1" /></label>}
       </div>
+      {chips.length > 0 && <div className="flex flex-wrap gap-2 mt-3">{chips.map((c) => <button key={`${c.k}:${c.v}`} className="card px-2 py-1 text-xs" onClick={() => removeValue(c.k, c.v)}>{c.k}:{c.v} ×</button>)}</div>}
     </section>
 
     <div className="grid md:grid-cols-4 gap-3 mb-4">
@@ -173,11 +209,11 @@ export function PricingPage() {
     <section className="card overflow-auto">
       <table className="w-full table-auto text-sm">
         <thead className="bg-[var(--surface)] sticky top-0"><tr className="text-left border-b border-[var(--border)]">
-          <th className="px-3 py-2">Invoice Date</th><th className="px-3 py-2">Invoice #</th><th className="px-3 py-2">CustID</th><th className="px-3 py-2">CustName</th><th className="px-3 py-2">Country</th><th className="px-3 py-2">PartNum</th><th className="px-3 py-2">LineDesc (25)</th>
+          <th className="px-3 py-2">Invoice Month</th><th className="px-3 py-2">Invoice #</th><th className="px-3 py-2">CustID</th><th className="px-3 py-2">CustName</th><th className="px-3 py-2">Country</th><th className="px-3 py-2">PartNum</th><th className="px-3 py-2">LineDesc (25)</th>
           <th className="px-3 py-2">Price</th><th className="px-3 py-2">Cost</th><th className="px-3 py-2">Profit</th><th className="px-3 py-2">Profit %</th>
         </tr></thead>
-        <tbody>{rows.map((row, i) => <tr key={`${row.invoice_num}-${row.part_num}-${i}`} className="border-b border-[var(--border)] hover:bg-[var(--surface)]/60 align-top">
-          <td className="px-3 py-2 whitespace-nowrap">{row.invoice_date}</td><td className="px-3 py-2 whitespace-nowrap">{row.invoice_num}</td><td className="px-3 py-2 whitespace-nowrap">{row.cust_id}</td><td className="px-3 py-2 whitespace-normal break-words">{row.cust_name}</td><td className="px-3 py-2 whitespace-nowrap">{row.country}</td><td className="px-3 py-2 whitespace-nowrap">{row.part_num}</td><td className="px-3 py-2 whitespace-normal break-words">{row.line_desc_short}</td>
+        <tbody>{rowsSorted.map((row, i) => <tr key={`${row.invoice_num}-${row.part_num}-${i}`} className="border-b border-[var(--border)] hover:bg-[var(--surface)]/60 align-top">
+          <td className="px-3 py-2 whitespace-nowrap">{row.invoice_month}</td><td className="px-3 py-2 whitespace-nowrap">{row.invoice_num}</td><td className="px-3 py-2 whitespace-nowrap">{row.cust_id}</td><td className="px-3 py-2 whitespace-normal break-words">{row.cust_name}</td><td className="px-3 py-2 whitespace-nowrap">{row.country}</td><td className="px-3 py-2 whitespace-nowrap">{row.part_num}</td><td className="px-3 py-2 whitespace-normal break-words">{row.line_desc_short}</td>
           <td className="px-3 py-2 whitespace-nowrap">{currency(row.amount)}</td><td className="px-3 py-2 whitespace-nowrap">{row.cost == null ? '-' : currency(row.cost)}</td><td className="px-3 py-2 whitespace-nowrap">{row.profit == null ? '-' : currency(row.profit)}</td><td className="px-3 py-2 whitespace-nowrap">{row.margin_pct == null ? '-' : pct(row.margin_pct)}</td>
         </tr>)}</tbody>
       </table>
