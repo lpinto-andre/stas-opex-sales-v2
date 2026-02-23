@@ -14,7 +14,6 @@ import {
   getOrdersByFYAndPartForParts,
   getOrdersByFYForParts,
   getOrdersByMonth,
-  getPartsPriorityRows,
   getOrdersByProdGroup,
   getRevenueByFY,
   getRevenueByFYAndPartForParts,
@@ -78,7 +77,6 @@ export function ExplorerPage() {
   const [searchText, setSearchText] = useState(String(saved.searchText ?? ''));
   const [topItemsN, setTopItemsN] = useState(Number(saved.topItemsN ?? 5));
   const [scopedTopParts, setScopedTopParts] = useState<string[]>([]);
-  const [fallbackTopParts, setFallbackTopParts] = useState<string[]>([]);
 
   const [customerSearch, setCustomerSearch] = useState('');
   const [countrySearch, setCountrySearch] = useState('');
@@ -137,30 +135,10 @@ export function ExplorerPage() {
     return f;
   }, [selectedCustomers, selectedCountries, selectedTerritories, selectedParts, selectedProdGroups, searchText, periodMode, fromMonth, toMonth]);
 
-  const allTopParts = useMemo(() => {
-    if (scopedTopParts.length) return scopedTopParts;
-    if (fallbackTopParts.length) return fallbackTopParts;
-    return topItemsSelection.partNums;
-  }, [scopedTopParts, fallbackTopParts, topItemsSelection.partNums]);
+  const allTopParts = useMemo(() => (scopedTopParts.length ? scopedTopParts : topItemsSelection.partNums), [scopedTopParts, topItemsSelection.partNums]);
   const boundedTopItemsN = Math.max(1, Math.min(10, topItemsN || 5));
   const limitedTopParts = useMemo(() => allTopParts.slice(0, boundedTopItemsN), [allTopParts, boundedTopItemsN]);
 
-
-
-  useEffect(() => {
-    let active = true;
-    getPartsPriorityRows(filters, 500).then((rows: Record<string, unknown>[]) => {
-      if (!active) return;
-      const parts = (rows as Record<string, unknown>[]).map((r) => String(r.part_num ?? '')).filter(Boolean);
-      setFallbackTopParts(Array.from(new Set(parts)));
-    }).catch(() => {
-      if (!active) return;
-      setFallbackTopParts([]);
-    });
-    return () => {
-      active = false;
-    };
-  }, [filters]);
 
   useEffect(() => {
     const topSaved = (useAppStore.getState().pageState['top-items'] as Record<string, unknown>) ?? {};
@@ -216,17 +194,6 @@ export function ExplorerPage() {
       setScopedTopParts(ranked);
     });
   }, [filters]);
-
-
-  useEffect(() => {
-    setTopFilters((prev) => {
-      const next = { ...prev };
-      (Object.keys(next) as TopKey[]).forEach((k) => {
-        next[k] = { ...next[k], fromMonth, toMonth };
-      });
-      return next;
-    });
-  }, [fromMonth, toMonth]);
 
   useEffect(() => {
     setTopFilters((prev) => {
