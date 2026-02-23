@@ -26,14 +26,14 @@ const titleByKey: Record<TopKey, string> = {
 export function ExplorerGraphicDetailPage() {
   const params = useParams<{ graphicKey: TopKey }>();
   const graphicKey = (params.graphicKey ?? 'trendRevenue') as TopKey;
-  const saved = useAppStore((s) => (s.pageState.explorer as Record<string, unknown>) ?? {});
+  const saved = useAppStore((s) => ((s.pageState['top-items'] as Record<string, unknown>) ?? (s.pageState.explorer as Record<string, unknown>) ?? {}));
   const topItemsSelection = useAppStore((s) => s.topItemsSelection);
   const setPageState = useAppStore((s) => s.setPageState);
 
   const topFilters = (saved.topFilters as Record<TopKey, TopSectionFilter>) ?? {
     trendRevenue: { fromMonth: '', toMonth: '', parts: [] }, trendOrders: { fromMonth: '', toMonth: '', parts: [] }, totalRevenue: { fromMonth: '', toMonth: '', parts: [] }, totalOrders: { fromMonth: '', toMonth: '', parts: [] }, multiRevenue: { fromMonth: '', toMonth: '', parts: [] }, multiOrders: { fromMonth: '', toMonth: '', parts: [] }
   };
-  const defaultN = Math.max(1, Math.min(10, Number(saved.topItemsN ?? 5)));
+  const defaultN = Math.max(1, Math.min(10, Number(saved.graphicsTopN ?? saved.topItemsN ?? 5)));
   const limitedTop = topItemsSelection.partNums.slice(0, defaultN);
 
   const [fromMonth, setFromMonth] = useState(topFilters[graphicKey]?.fromMonth ?? '');
@@ -67,7 +67,7 @@ export function ExplorerGraphicDetailPage() {
 
   useEffect(() => {
     const nextTopFilters = { ...topFilters, [graphicKey]: { fromMonth, toMonth, parts } };
-    setPageState('explorer', { ...saved, topFilters: nextTopFilters });
+    setPageState('top-items', { ...saved, topFilters: nextTopFilters });
   }, [fromMonth, toMonth, parts]);
 
   useEffect(() => {
@@ -112,7 +112,7 @@ export function ExplorerGraphicDetailPage() {
   };
 
   return <div>
-    <PageHeader title={titleByKey[graphicKey]} subtitle="Expanded view with supporting details." actions={<Link to="/explorer" className="card px-3 py-2">Back to Discover</Link>} />
+    <PageHeader title={titleByKey[graphicKey]} subtitle="Expanded view with supporting details." actions={<Link to="/top-items" className="card px-3 py-2">Back to Discover</Link>} />
 
     <section className="card p-3 mb-4">
       <h3 className="font-semibold mb-2">Graphic Filters</h3>

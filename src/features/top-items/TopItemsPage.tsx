@@ -1,11 +1,15 @@
+import { Link } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
+import { Bar, BarChart, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { getCustomerOptions, getDistinctOptions, getPartYearMetrics, getPartsOrdersByFY, getPartsPriorityRows, getPartsRevenueByFY, type Filters } from '@/data/queries';
+import { getCustomerOptions, getDistinctOptions, getOrderTotalsForParts, getOrdersByFYAndPartForParts, getOrdersByFYForParts, getPartYearMetrics, getPartsOrdersByFY, getPartsPriorityRows, getPartsRevenueByFY, getRevenueByFYAndPartForParts, getRevenueByFYForParts, getRevenueTotalsForParts, type Filters } from '@/data/queries';
 import { useAppStore } from '@/state/store';
 
 type Option = { value: string; label: string };
 type PeriodMode = 'all' | 'after' | 'before' | 'between';
 type Weights = { revenue: number; orders: number; profit: number; margin: number; trend: number; active: number };
+type TopKey = 'trendRevenue' | 'trendOrders' | 'totalRevenue' | 'totalOrders' | 'multiRevenue' | 'multiOrders';
+type TopSectionFilter = { fromMonth: string; toMonth: string; parts: string[] };
 
 type ScoreRow = {
   rank: number;
@@ -46,6 +50,17 @@ const monthEnd = (m: string) => {
 };
 const fyLabel = (fy: number) => `FY${String((fy - 1) % 100).padStart(2, '0')}-${String(fy % 100).padStart(2, '0')}`;
 
+const tooltipStyle = { background: '#0f172a', border: '1px solid #334155', color: '#f8fafc' };
+const tooltipLabelStyle = { color: '#f8fafc', fontWeight: 600 };
+const emptyTopFilters = (fromMonth: string, toMonth: string): Record<TopKey, TopSectionFilter> => ({
+  trendRevenue: { fromMonth, toMonth, parts: [] },
+  trendOrders: { fromMonth, toMonth, parts: [] },
+  totalRevenue: { fromMonth, toMonth, parts: [] },
+  totalOrders: { fromMonth, toMonth, parts: [] },
+  multiRevenue: { fromMonth, toMonth, parts: [] },
+  multiOrders: { fromMonth, toMonth, parts: [] }
+});
+
 function MultiPick({ label, options, values, onChange }: { label: string; options: Option[]; values: string[]; onChange: (next: string[]) => void }) {
   const toggle = (value: string) => onChange(values.includes(value) ? values.filter((v) => v !== value) : [...values, value]);
   return <div className="text-xs text-[var(--text-muted)]"><div className="mb-1">{label}</div><div className="card h-28 overflow-auto p-2 space-y-1">{options.map((o) => <label key={o.value} className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={values.includes(o.value)} onChange={() => toggle(o.value)} /><span className="text-xs">{o.label}</span></label>)}</div></div>;
@@ -82,6 +97,14 @@ export function TopItemsPage() {
   const [rows, setRows] = useState<ScoreRow[]>([]);
   const [rankedPartNums, setRankedPartNums] = useState<string[]>([]);
   const [fyColumns, setFyColumns] = useState<number[]>([]);
+  const [graphicsTopN, setGraphicsTopN] = useState(Number(saved.graphicsTopN ?? saved.topItemsN ?? 5));
+  const [topFilters, setTopFilters] = useState<Record<TopKey, TopSectionFilter>>((saved.topFilters as Record<TopKey, TopSectionFilter>) ?? emptyTopFilters(String(saved.fromMonth ?? ''), String(saved.toMonth ?? '')));
+  const [topRevByFy, setTopRevByFy] = useState<Record<string, unknown>[]>([]);
+  const [topOrdByFy, setTopOrdByFy] = useState<Record<string, unknown>[]>([]);
+  const [topRevTotals, setTopRevTotals] = useState<Record<string, unknown>[]>([]);
+  const [topOrdTotals, setTopOrdTotals] = useState<Record<string, unknown>[]>([]);
+  const [topRevByFyPart, setTopRevByFyPart] = useState<Record<string, unknown>[]>([]);
+  const [topOrdByFyPart, setTopOrdByFyPart] = useState<Record<string, unknown>[]>([]);
 
   useEffect(() => { getCustomerOptions(customerSearch, 150).then((r) => setCustomerOptions(r.map((x) => ({ value: x.value, label: x.label })))); }, [customerSearch]);
   useEffect(() => { getDistinctOptions('country', countrySearch, 150).then((r) => setCountryOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [countrySearch]);
@@ -262,17 +285,88 @@ export function TopItemsPage() {
   };
 
 
-  useEffect(() => {
-    setPageState('top-items', { topN, k, m, periodMode, fromMonth, toMonth, searchText, selectedCustomers, selectedCountries, selectedParts, selectedProdGroups, weights });
-  }, [topN, k, m, periodMode, fromMonth, toMonth, searchText, selectedCustomers, selectedCountries, selectedParts, selectedProdGroups, weights, setPageState]);
+
+  const boundedGraphicsTopN = Math.max(1, Math.min(10, graphicsTopN || 5));
+  const limitedTopParts = useMemo(() => rankedPartNums.slice(0, boundedGraphicsTopN), [rankedPartNums, boundedGraphicsTopN]);
+
+  const sectionFilters = (sf: TopSectionFilter): Filters => {
+    const f: Filters = { ...filters, parts: sf.parts.length ? sf.parts : limitedTopParts };
+    if (sf.fromMonth) f.startDate = monthStart(sf.fromMonth) || f.startDate;
+    if (sf.toMonth) f.endDate = monthEnd(sf.toMonth) || f.endDate;
+    return f;
+  };
 
   useEffect(() => {
-    setTopItemsSelection({ partNums: rankedPartNums, topN });
-  }, [rankedPartNums, topN, setTopItemsSelection]);
+    setTopFilters((prev) => {
+      const next = { ...prev };
+      (Object.keys(next) as TopKey[]).forEach((k) => {
+        const current = next[k].parts.filter((p) => limitedTopParts.includes(p));
+        next[k] = { ...next[k], parts: current.length ? current : [...limitedTopParts] };
+      });
+      return next;
+    });
+  }, [limitedTopParts]);
+
+  useEffect(() => {
+    Promise.all([
+      getRevenueByFYForParts(sectionFilters(topFilters.trendRevenue), topFilters.trendRevenue.parts),
+      getOrdersByFYForParts(sectionFilters(topFilters.trendOrders), topFilters.trendOrders.parts),
+      getRevenueTotalsForParts(sectionFilters(topFilters.totalRevenue), topFilters.totalRevenue.parts),
+      getOrderTotalsForParts(sectionFilters(topFilters.totalOrders), topFilters.totalOrders.parts),
+      getRevenueByFYAndPartForParts(sectionFilters(topFilters.multiRevenue), topFilters.multiRevenue.parts),
+      getOrdersByFYAndPartForParts(sectionFilters(topFilters.multiOrders), topFilters.multiOrders.parts)
+    ]).then(([tr, to, trt, tot, mrv, mor]) => {
+      setTopRevByFy(tr as Record<string, unknown>[]); setTopOrdByFy(to as Record<string, unknown>[]); setTopRevTotals(trt as Record<string, unknown>[]); setTopOrdTotals(tot as Record<string, unknown>[]);
+      setTopRevByFyPart(mrv as Record<string, unknown>[]); setTopOrdByFyPart(mor as Record<string, unknown>[]);
+    });
+  }, [topFilters, filters, limitedTopParts]);
+
+  useEffect(() => {
+    setPageState('top-items', { topN, graphicsTopN: boundedGraphicsTopN, topFilters, k, m, periodMode, fromMonth, toMonth, searchText, selectedCustomers, selectedCountries, selectedParts, selectedProdGroups, weights });
+  }, [topN, boundedGraphicsTopN, topFilters, k, m, periodMode, fromMonth, toMonth, searchText, selectedCustomers, selectedCountries, selectedParts, selectedProdGroups, weights, setPageState]);
+
+  useEffect(() => {
+    setTopItemsSelection({ partNums: rankedPartNums, topN: boundedGraphicsTopN });
+  }, [rankedPartNums, boundedGraphicsTopN, setTopItemsSelection]);
+
+
+  const setTopFilter = (key: TopKey, patch: Partial<TopSectionFilter>) => setTopFilters((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }));
+  const chartTopRev = topRevByFy.map((r) => ({ fy: String(r.fy ?? ''), revenue: Math.round(Number(r.revenue ?? 0)) }));
+  const chartTopOrd = topOrdByFy.map((r) => ({ fy: String(r.fy ?? ''), orders: Number(r.orders ?? 0) }));
+  const chartTopRevTotals = topRevTotals.map((r) => ({ part_num: String(r.part_num ?? ''), revenue: Math.round(Number(r.revenue ?? 0)) }));
+  const chartTopOrdTotals = topOrdTotals.map((r) => ({ part_num: String(r.part_num ?? ''), orders: Number(r.orders ?? 0) }));
+  const multiRevSeries = (topFilters.multiRevenue.parts.length ? topFilters.multiRevenue.parts : limitedTopParts).slice(0, 8);
+  const multiOrdSeries = (topFilters.multiOrders.parts.length ? topFilters.multiOrders.parts : limitedTopParts).slice(0, 8);
+  const pivotByFy = (rows: Record<string, unknown>[], valueKey: 'revenue' | 'orders', series: string[]) => {
+    const byFy = new Map<string, Record<string, number | string>>();
+    rows.forEach((r) => { const fy = String(r.fy ?? ''); const part = String(r.part_num ?? ''); if (!fy || !part) return; if (!byFy.has(fy)) byFy.set(fy, { fy }); byFy.get(fy)![part] = Number(r[valueKey] ?? 0); });
+    return [...byFy.values()].sort((a, b) => Number(a.fy) - Number(b.fy)).map((row) => { const filled: Record<string, number | string> = { ...row }; series.forEach((part) => { if (filled[part] == null) filled[part] = 0; }); return filled; });
+  };
+  const chartTopRevMulti = pivotByFy(topRevByFyPart, 'revenue', multiRevSeries);
+  const chartTopOrdMulti = pivotByFy(topOrdByFyPart, 'orders', multiOrdSeries);
+  const renderTopControls = (key: TopKey) => {
+    const current = topFilters[key];
+    return <div className="grid md:grid-cols-3 gap-2 mb-2">
+      <label className="text-xs text-[var(--text-muted)]">From YYYY-MM
+        <input type="text" value={current.fromMonth} onChange={(e) => { const n = safeMonthInput(e.target.value); if (n !== null) setTopFilter(key, { fromMonth: n }); }} className="card w-full px-2 py-1 mt-1" />
+      </label>
+      <label className="text-xs text-[var(--text-muted)]">To YYYY-MM
+        <input type="text" value={current.toMonth} onChange={(e) => { const n = safeMonthInput(e.target.value); if (n !== null) setTopFilter(key, { toMonth: n }); }} className="card w-full px-2 py-1 mt-1" />
+      </label>
+      <div className="text-xs text-[var(--text-muted)]">
+        <div className="mb-1">Top Items (from model)</div>
+        <div className="card h-24 overflow-auto p-2">
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1">{limitedTopParts.map((p) => <label key={`${key}-${p}`} className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={current.parts.includes(p)} onChange={() => setTopFilter(key, { parts: current.parts.includes(p) ? current.parts.filter((x) => x !== p) : [...current.parts, p] })} /><span className="truncate">{p}</span></label>)}</div>
+        </div>
+      </div>
+    </div>;
+  };
+  const cardTitle = (title: string, key: TopKey) => <div className="flex items-center justify-between mb-2"><h3 className="font-semibold">{title}</h3><Link className="card px-2 py-1 text-xs" to={`/explorer/graphic/${key}`}>Expand</Link></div>;
 
   return <div>
-    <PageHeader title="Top Items Scoring Model" subtitle="Weighted deterministic model for top parts." actions={<div className="grid grid-cols-4 gap-2 items-end">
-      <label className="text-xs text-[var(--text-muted)]">Items to show<input type="number" value={topN} onChange={(e) => setTopN(Number(e.target.value || 50))} className="card w-full px-2 py-1 mt-1" /></label>
+    <PageHeader title="Top Items Scoring Model" subtitle="Weighted deterministic model for top parts." actions={<div className="grid grid-cols-5 gap-2 items-end">
+      <label className="text-xs text-[var(--text-muted)]">Items to show on table<input type="number" value={topN} onChange={(e) => setTopN(Number(e.target.value || 50))} className="card w-full px-2 py-1 mt-1" /></label>
+      <label className="text-xs text-[var(--text-muted)]">Items to show on graphics<input type="number" min={1} max={10} value={boundedGraphicsTopN} onChange={(e) => setGraphicsTopN(Math.max(1, Math.min(10, Number(e.target.value || 5))))} className="card w-full px-2 py-1 mt-1" /></label>
       <label className="text-xs text-[var(--text-muted)]">Recent FY window (k)<input type="number" value={k} onChange={(e) => setK(Number(e.target.value || 2))} className="card w-full px-2 py-1 mt-1" /></label>
       <label className="text-xs text-[var(--text-muted)]">Past FY window (m)<input type="number" value={m} onChange={(e) => setM(Number(e.target.value || 3))} className="card w-full px-2 py-1 mt-1" /></label>
       <label className="text-xs text-[var(--text-muted)]">Period<select value={periodMode} onChange={(e) => setPeriodMode(e.target.value as PeriodMode)} className="card px-2 py-1 block w-full mt-1"><option value="all">All</option><option value="after">After (month)</option><option value="before">Before (month)</option><option value="between">Between (months)</option></select></label>
@@ -304,6 +398,19 @@ export function TopItemsPage() {
           <input type="number" min={0} step={1} value={weights[key]} onChange={(e) => setWeights((w) => ({ ...w, [key]: Math.max(0, Number(e.target.value || 0)) }))} className="card w-full px-2 py-1 mt-1" />
           <span className="block mt-1">{weightDesc[key]}</span>
         </label>)}
+      </div>
+    </section>
+
+
+    <section className="mb-4 border-2 border-[var(--teal)]/40 rounded-2xl p-4 bg-[var(--surface)]/20">
+      <h3 className="font-semibold mb-3 text-base">Top Items Graphics</h3>
+      <div className="grid xl:grid-cols-2 gap-4">
+        <section className="card p-3 min-h-[34rem] flex flex-col">{cardTitle('Top Items: Revenue by Time', 'trendRevenue')}{renderTopControls('trendRevenue')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopRev}><XAxis dataKey="fy"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Line type="monotone" dataKey="revenue" stroke="#06b6d4"/></LineChart></ResponsiveContainer></div></section>
+        <section className="card p-3 min-h-[34rem] flex flex-col">{cardTitle('Top Items: Orders by Time', 'trendOrders')}{renderTopControls('trendOrders')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopOrd}><XAxis dataKey="fy"/><YAxis/><Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Line type="monotone" dataKey="orders" stroke="#84cc16"/></LineChart></ResponsiveContainer></div></section>
+        <section className="card p-3 min-h-[34rem] flex flex-col">{cardTitle('Top Items: Total Revenue', 'totalRevenue')}{renderTopControls('totalRevenue')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><BarChart data={chartTopRevTotals}><XAxis dataKey="part_num"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Bar dataKey="revenue" fill="#0ea5e9"/></BarChart></ResponsiveContainer></div></section>
+        <section className="card p-3 min-h-[34rem] flex flex-col">{cardTitle('Top Items: Total Orders', 'totalOrders')}{renderTopControls('totalOrders')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><BarChart data={chartTopOrdTotals}><XAxis dataKey="part_num"/><YAxis/><Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Bar dataKey="orders" fill="#65a30d"/></BarChart></ResponsiveContainer></div></section>
+        <section className="card p-3 min-h-[34rem] flex flex-col">{cardTitle('Top Items: Revenue by Time (multiple curves)', 'multiRevenue')}{renderTopControls('multiRevenue')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopRevMulti}><XAxis dataKey="fy"/><YAxis/><Tooltip shared formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />{multiRevSeries.map((p, i) => <Line key={p} type="monotone" dataKey={p} name={p} stroke={["#0ea5e9", "#22c55e", "#f97316", "#a855f7", "#06b6d4", "#f43f5e", "#eab308", "#10b981"][i % 8]} connectNulls dot />)}</LineChart></ResponsiveContainer></div></section>
+        <section className="card p-3 min-h-[34rem] flex flex-col">{cardTitle('Top Items: Orders by Time (multiple curves)', 'multiOrders')}{renderTopControls('multiOrders')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopOrdMulti}><XAxis dataKey="fy"/><YAxis/><Tooltip shared contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />{multiOrdSeries.map((p, i) => <Line key={p} type="monotone" dataKey={p} name={p} stroke={["#84cc16", "#14b8a6", "#f59e0b", "#8b5cf6", "#f43f5e", "#0ea5e9", "#22c55e", "#eab308"][i % 8]} connectNulls dot />)}</LineChart></ResponsiveContainer></div></section>
       </div>
     </section>
 
