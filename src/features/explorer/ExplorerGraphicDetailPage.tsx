@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Bar, BarChart, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { getOrderTotalsForParts, getOrdersByFYAndPartForParts, getOrdersByFYForParts, getPartsOrdersByFY, getPartsPriorityRows, getPartsRevenueByFY, getRevenueByFYAndPartForParts, getRevenueByFYForParts, getRevenueTotalsForParts, type Filters } from '@/data/queries';
+import { getOrderTotalsForParts, getOrdersByFYAndPartForParts, getOrdersByFYForParts, getPartsOrdersByFY, getPartsPriorityRows, getPartsRevenueByFY, getRevenueByFYAndPartForParts, getRevenueByFYForParts, getRevenueCostProfitOverTime, getRevenueTotalsForParts, type Filters } from '@/data/queries';
 import { useAppStore } from '@/state/store';
 
-type TopKey = 'trendRevenue' | 'trendOrders' | 'totalRevenue' | 'totalOrders' | 'multiRevenue' | 'multiOrders';
+type TopKey = 'trendRevenue' | 'trendOrders' | 'trendCost' | 'trendProfit' | 'trendMargin' | 'totalRevenue' | 'totalOrders' | 'multiRevenue' | 'multiOrders';
 type TopSectionFilter = { fromMonth: string; toMonth: string; parts: string[] };
 type PartRow = {
   cust_id: string; cust_name: string; country: string; part_num: string; line_desc_short: string; prod_group: string;
@@ -20,7 +20,7 @@ const monthStart = (m: string) => (isValidMonth(m) ? `${m}-01` : '');
 const monthEnd = (m: string) => { if (!isValidMonth(m)) return ''; const [y, mo] = m.split('-').map(Number); const d = new Date(y, mo, 0); return `${y}-${String(mo).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 const titleByKey: Record<TopKey, string> = {
-  trendRevenue: 'Top Items: Revenue by Time', trendOrders: 'Top Items: Orders by Time', totalRevenue: 'Top Items: Total Revenue', totalOrders: 'Top Items: Total Orders', multiRevenue: 'Top Items: Revenue by Time (multiple curves)', multiOrders: 'Top Items: Orders by Time (multiple curves)'
+  trendRevenue: 'Top Items: Revenue by Time', trendOrders: 'Top Items: Orders by Time', trendCost: 'Top Items: Total Cost by Time', trendProfit: 'Top Items: Total Profit by Time', trendMargin: 'Top Items: Total Margin % by Time', totalRevenue: 'Top Items: Total Revenue', totalOrders: 'Top Items: Total Orders', multiRevenue: 'Top Items: Revenue by Time (multiple curves)', multiOrders: 'Top Items: Orders by Time (multiple curves)'
 };
 
 export function ExplorerGraphicDetailPage() {
@@ -31,7 +31,7 @@ export function ExplorerGraphicDetailPage() {
   const setPageState = useAppStore((s) => s.setPageState);
 
   const topFilters = (saved.topFilters as Record<TopKey, TopSectionFilter>) ?? {
-    trendRevenue: { fromMonth: '', toMonth: '', parts: [] }, trendOrders: { fromMonth: '', toMonth: '', parts: [] }, totalRevenue: { fromMonth: '', toMonth: '', parts: [] }, totalOrders: { fromMonth: '', toMonth: '', parts: [] }, multiRevenue: { fromMonth: '', toMonth: '', parts: [] }, multiOrders: { fromMonth: '', toMonth: '', parts: [] }
+    trendRevenue: { fromMonth: '', toMonth: '', parts: [] }, trendOrders: { fromMonth: '', toMonth: '', parts: [] }, trendCost: { fromMonth: '', toMonth: '', parts: [] }, trendProfit: { fromMonth: '', toMonth: '', parts: [] }, trendMargin: { fromMonth: '', toMonth: '', parts: [] }, totalRevenue: { fromMonth: '', toMonth: '', parts: [] }, totalOrders: { fromMonth: '', toMonth: '', parts: [] }, multiRevenue: { fromMonth: '', toMonth: '', parts: [] }, multiOrders: { fromMonth: '', toMonth: '', parts: [] }
   };
   const defaultN = Math.max(1, Math.min(10, Number(saved.graphicsTopN ?? saved.topItemsN ?? 5)));
   const limitedTop = topItemsSelection.partNums.slice(0, defaultN);
@@ -74,7 +74,7 @@ export function ExplorerGraphicDetailPage() {
     Promise.all([
       getPartsPriorityRows(baseFilters, 3000), getPartsRevenueByFY(baseFilters), getPartsOrdersByFY(baseFilters),
       getRevenueTotalsForParts(baseFilters, parts),
-      graphicKey.includes('Revenue') ? (graphicKey.includes('multi') ? getRevenueByFYAndPartForParts(baseFilters, parts) : getRevenueByFYForParts(baseFilters, parts)) : (graphicKey.includes('multi') ? getOrdersByFYAndPartForParts(baseFilters, parts) : getOrdersByFYForParts(baseFilters, parts))
+      graphicKey === 'trendCost' ? getRevenueCostProfitOverTime(baseFilters, true, 'fy') : graphicKey === 'trendProfit' ? getRevenueCostProfitOverTime(baseFilters, true, 'fy') : graphicKey === 'trendMargin' ? getRevenueCostProfitOverTime(baseFilters, true, 'fy') : graphicKey.includes('Revenue') ? (graphicKey.includes('multi') ? getRevenueByFYAndPartForParts(baseFilters, parts) : getRevenueByFYForParts(baseFilters, parts)) : (graphicKey.includes('multi') ? getOrdersByFYAndPartForParts(baseFilters, parts) : getOrdersByFYForParts(baseFilters, parts))
     ]).then(([base, revFy, ordFy, pie, chart]) => {
       const map = new Map<string, PartRow>();
       (base as Record<string, unknown>[]).forEach((r) => {
@@ -101,8 +101,11 @@ export function ExplorerGraphicDetailPage() {
   const renderExpanded = () => {
     if (graphicKey === 'trendRevenue') return <LineChart data={chartRows.map((r) => ({ fy: String(r.fy ?? ''), revenue: Number(r.revenue ?? 0) }))}><XAxis dataKey="fy"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} /><Line type="monotone" dataKey="revenue" stroke="#0ea5e9" /></LineChart>;
     if (graphicKey === 'trendOrders') return <LineChart data={chartRows.map((r) => ({ fy: String(r.fy ?? ''), orders: Number(r.orders ?? 0) }))}><XAxis dataKey="fy"/><YAxis/><Tooltip /><Line type="monotone" dataKey="orders" stroke="#84cc16" /></LineChart>;
-    if (graphicKey === 'totalRevenue') return <BarChart data={chartRows.map((r) => ({ part_num: String(r.part_num ?? ''), revenue: Number(r.revenue ?? 0) }))}><XAxis dataKey="part_num"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} /><Bar dataKey="revenue" fill="#0ea5e9"/></BarChart>;
-    if (graphicKey === 'totalOrders') return <BarChart data={chartRows.map((r) => ({ part_num: String(r.part_num ?? ''), orders: Number(r.orders ?? 0) }))}><XAxis dataKey="part_num"/><YAxis/><Tooltip /><Bar dataKey="orders" fill="#65a30d"/></BarChart>;
+    if (graphicKey === 'trendCost') return <LineChart data={chartRows.map((r) => ({ fy: String(r.period ?? ''), cost: Number(r.cost ?? 0) }))}><XAxis dataKey="fy"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} /><Line type="monotone" dataKey="cost" stroke="#f59e0b" /></LineChart>;
+    if (graphicKey === 'trendProfit') return <LineChart data={chartRows.map((r) => ({ fy: String(r.period ?? ''), profit: Number(r.profit ?? 0) }))}><XAxis dataKey="fy"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} /><Line type="monotone" dataKey="profit" stroke="#22c55e" /></LineChart>;
+    if (graphicKey === 'trendMargin') return <LineChart data={chartRows.map((r) => ({ fy: String(r.period ?? ''), margin_pct: Number(r.margin_pct ?? 0) }))}><XAxis dataKey="fy"/><YAxis/><Tooltip formatter={(v) => pct(Number(v))} /><Line type="monotone" dataKey="margin_pct" stroke="#a855f7" /></LineChart>;
+    if (graphicKey === 'totalRevenue') return <BarChart data={chartRows.map((r) => ({ part_num: String(r.part_num ?? ''), revenue: Number(r.revenue ?? 0) }))}><XAxis dataKey="part_num" interval={0} minTickGap={0}/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} /><Bar dataKey="revenue" fill="#0ea5e9"/></BarChart>;
+    if (graphicKey === 'totalOrders') return <BarChart data={chartRows.map((r) => ({ part_num: String(r.part_num ?? ''), orders: Number(r.orders ?? 0) }))}><XAxis dataKey="part_num" interval={0} minTickGap={0}/><YAxis/><Tooltip /><Bar dataKey="orders" fill="#65a30d"/></BarChart>;
     if (graphicKey === 'multiRevenue') {
       const series = parts.slice(0, 8); const data = pivotByFy(chartRows, 'revenue', series);
       return <LineChart data={data}><XAxis dataKey="fy"/><YAxis/><Tooltip shared formatter={(v) => currency(Number(v))} />{series.map((p, i) => <Line key={p} type="monotone" dataKey={p} stroke={COLORS[i % COLORS.length]} dot />)}</LineChart>;

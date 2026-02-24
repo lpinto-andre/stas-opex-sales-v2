@@ -9,6 +9,7 @@ import { DeclinePage } from '@/features/decline/DeclinePage';
 import { DatabasePage } from '@/features/database/DatabasePage';
 import { PricingPage } from '@/features/pricing/PricingPage';
 import { PricingComparatorPage } from '@/features/pricing/PricingComparatorPage';
+import { PotentialTablesPage } from '@/features/dataset/PotentialTablesPage';
 import { useAppStore } from '@/state/store';
 
 export function AppRouter() {
@@ -26,6 +27,7 @@ export function AppRouter() {
     <Route path="/pricing" element={<PricingPage />} />
     <Route path="/pricing-comparator" element={<PricingComparatorPage />} />
     <Route path="/pricing/comparator" element={<Navigate to="/pricing-comparator" replace />} />
+    <Route path="/potential-tables" element={<PotentialTablesPage />} />
     <Route path="*" element={<Navigate to={datasetLoaded ? '/explorer' : '/dataset'} replace />} />
   </Routes></AppShell>;
 }

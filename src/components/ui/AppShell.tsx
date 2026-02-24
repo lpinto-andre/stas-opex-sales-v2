@@ -6,8 +6,8 @@ import { loadDatasetPackage } from '@/data/cache';
 import { buildModel } from '@/data/duckdb';
 import { useAppStore } from '@/state/store';
 
-const nav = ['/dataset', '/explorer', '/database', '/group-by', '/pricing', '/pricing-comparator', '/top-items', '/labels'];
-const navLabel: Record<string, string> = { '/dataset': 'Dataset Manager', '/explorer': 'Dashboard', '/group-by': 'Group By', '/database': 'Parts Database', '/pricing': 'Pricing', '/pricing-comparator': 'Pricing Comparator', '/top-items': 'Top Items', '/labels': 'Labels' };
+const nav = ['/dataset', '/explorer', '/database', '/group-by', '/pricing', '/pricing-comparator', '/potential-tables', '/top-items', '/labels'];
+const navLabel: Record<string, string> = { '/dataset': 'Dataset Manager', '/explorer': 'Dashboard', '/group-by': 'Group By', '/database': 'Parts Database', '/pricing': 'Pricing', '/pricing-comparator': 'Pricing Comparator', '/potential-tables': 'Potential Tables', '/top-items': 'Top Items', '/labels': 'Labels' };
 
 export function AppShell({ children }: { children: ReactNode }) {
   const setDataset = useAppStore((s) => s.setDataset);
