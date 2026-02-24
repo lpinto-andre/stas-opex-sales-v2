@@ -366,8 +366,8 @@ export function TopItemsPage() {
 
   return <div>
     <PageHeader title="Top Items Scoring Model" subtitle="Weighted deterministic model for top parts." actions={<div className="grid grid-cols-3 gap-2 items-end">
-      <label className="text-xs text-[var(--text-muted)]">Recent FY window (k)<input type="number" value={k} onChange={(e) => setK(Number(e.target.value || 2))} className="card w-full px-2 py-1 mt-1" /></label>
-      <label className="text-xs text-[var(--text-muted)]">Past FY window (m)<input type="number" value={m} onChange={(e) => setM(Number(e.target.value || 3))} className="card w-full px-2 py-1 mt-1" /></label>
+      <label className="text-xs text-[var(--text-muted)]">Recent FY window (k)<input type="number" value={k} onChange={(e) => setK(Math.max(1, Number(e.target.value || 2)))} className="card w-full px-2 py-1 mt-1" /></label>
+      <label className="text-xs text-[var(--text-muted)]">Past FY window (m)<input type="number" value={m} onChange={(e) => setM(Math.max(1, Number(e.target.value || 3)))} className="card w-full px-2 py-1 mt-1" /></label>
       <label className="text-xs text-[var(--text-muted)]">Period<select value={periodMode} onChange={(e) => setPeriodMode(e.target.value as PeriodMode)} className="card px-2 py-1 block w-full mt-1"><option value="all">All</option><option value="after">After (month)</option><option value="before">Before (month)</option><option value="between">Between (months)</option></select></label>
     </div>} />
 
@@ -381,7 +381,7 @@ export function TopItemsPage() {
         <div className="space-y-2"><input value={groupSearch} onChange={(e) => setGroupSearch(e.target.value)} placeholder="Search group" className="card w-full px-2 py-1 text-xs" /><MultiPick label="ProdGroups" options={groupOptions} values={selectedProdGroups} onChange={setSelectedProdGroups} /></div>
       </div>
       <div className="grid md:grid-cols-4 gap-2 mt-3">
-        <label className="text-xs text-[var(--text-muted)]">Items to show on table<input type="number" value={topN} onChange={(e) => setTopN(Number(e.target.value || 50))} className="card w-full px-2 py-1 mt-1" /></label>
+        <label className="text-xs text-[var(--text-muted)]">Items to show on table<input type="number" value={topN} onChange={(e) => setTopN(Math.max(1, Number(e.target.value || 50)))} className="card w-full px-2 py-1 mt-1" /></label>
         <label className="text-xs text-[var(--text-muted)]">Items to show on graphics<input type="number" min={1} max={10} value={boundedGraphicsTopN} onChange={(e) => setGraphicsTopN(Math.max(1, Math.min(10, Number(e.target.value || 5))))} className="card w-full px-2 py-1 mt-1" /></label>
         <label className="text-xs text-[var(--text-muted)]">LineDesc contains<input value={searchText} onChange={(e) => setSearchText(e.target.value)} className="card w-full px-2 py-1 mt-1" /></label>
         {(periodMode === 'after' || periodMode === 'between') && <label className="text-xs text-[var(--text-muted)]">From YYYY-MM<input type="text" inputMode="numeric" placeholder="YYYY-MM" value={fromMonth} onChange={(e) => { const next = safeMonthInput(e.target.value); if (next !== null) setFromMonth(next); }} className="card w-full px-2 py-1 mt-1" /></label>}

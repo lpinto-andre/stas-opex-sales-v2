@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Bar, BarChart, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { KPIStatCard } from '@/components/ui/KPIStatCard';
-import { getCustomerOptions, getDetailRows, getDistinctOptions, getPricingKPIs, type Filters } from '@/data/queries';
+import { getCustomerOptions, getDetailRows, getDistinctOptions, getPricingKPIs, getRevenueByMonthAndPartForParts, getRevenueCostProfitOverTime, getTopEntitiesByMetric, type Filters } from '@/data/queries';
 import { useAppStore } from '@/state/store';
 
 type Option = { value: string; label: string };
@@ -47,7 +48,6 @@ export function PricingPage() {
   const saved = useAppStore((s) => (s.pageState.pricing as Record<string, unknown>) ?? {});
   const setPageState = useAppStore((s) => s.setPageState);
 
-  const [costOnly, setCostOnly] = useState(Boolean(saved.costOnly ?? true));
   const [periodMode, setPeriodMode] = useState<PeriodMode>((saved.periodMode as PeriodMode) ?? 'all');
   const [fromMonth, setFromMonth] = useState(String(saved.fromMonth ?? ''));
   const [toMonth, setToMonth] = useState(String(saved.toMonth ?? ''));
@@ -78,6 +78,10 @@ export function PricingPage() {
 
   const [kpis, setKpis] = useState<Record<string, number>>({});
   const [rows, setRows] = useState<PricingRow[]>([]);
+  const [trend, setTrend] = useState<Record<string, unknown>[]>([]);
+  const [graphicParts, setGraphicParts] = useState<string[]>((saved.graphicParts as string[]) ?? []);
+  const [multiSeries, setMultiSeries] = useState<Record<string, unknown>[]>([]);
+  const [graphicsCollapsed, setGraphicsCollapsed] = useState(Boolean(saved.graphicsCollapsed ?? false));
   const [loadError, setLoadError] = useState('');
 
   useEffect(() => { getCustomerOptions(customerSearch, 150).then((r) => setCustomerOptions(r.map((x) => ({ value: x.value, label: x.label })))); }, [customerSearch]);
@@ -107,60 +111,64 @@ export function PricingPage() {
     let active = true;
     setLoadError('');
     Promise.allSettled([
-      getPricingKPIs(filters, costOnly),
-      getDetailRows(filters, 2000)
-    ]).then(([kpiRes, rowsRes]) => {
+      getPricingKPIs(filters, true),
+      getDetailRows(filters, 2000),
+      getRevenueCostProfitOverTime(filters, true, 'monthly'),
+      getTopEntitiesByMetric(filters, true, 'parts', 'revenue', 8)
+    ]).then(([kpiRes, rowsRes, trendRes, topRes]) => {
       if (!active) return;
       setKpis(kpiRes.status === 'fulfilled' ? ((kpiRes.value as Record<string, number>) ?? {}) : {});
+      setTrend(trendRes.status === 'fulfilled' ? ((trendRes.value as Record<string, unknown>[]) ?? []) : []);
+      const topParts = topRes.status === 'fulfilled'
+        ? (topRes.value as Record<string, unknown>[]).map((r) => String(r.id ?? '')).filter(Boolean)
+        : [];
+      if (!graphicParts.length && topParts.length) setGraphicParts(topParts.slice(0, 6));
+
       if (rowsRes.status === 'fulfilled') {
         setRows((rowsRes.value as Record<string, unknown>[]).map((r) => ({
-          invoice_month: String(r.invoice_date ?? '').slice(0, 7),
-          invoice_num: String(r.invoice_num ?? ''),
-          cust_id: String(r.cust_id ?? ''),
-          cust_name: String(r.cust_name ?? ''),
-          country: String(r.country ?? ''),
-          territory: String(r.territory ?? ''),
-          class_id: String(r.class_id ?? ''),
-          part_num: String(r.part_num ?? ''),
-          line_desc_short: String(r.line_desc ?? '').slice(0, 25),
-          amount: Number(r.amount ?? 0),
-          cost: r.cost == null ? null : Number(r.cost),
-          profit: r.profit == null ? null : Number(r.profit),
-          margin_pct: r.margin_pct == null ? null : Number(r.margin_pct)
+          invoice_month: String(r.invoice_date ?? '').slice(0, 7), invoice_num: String(r.invoice_num ?? ''), cust_id: String(r.cust_id ?? ''), cust_name: String(r.cust_name ?? ''),
+          country: String(r.country ?? ''), territory: String(r.territory ?? ''), class_id: String(r.class_id ?? ''), part_num: String(r.part_num ?? ''), line_desc_short: String(r.line_desc ?? '').slice(0, 25),
+          amount: Number(r.amount ?? 0), cost: r.cost == null ? null : Number(r.cost), profit: r.profit == null ? null : Number(r.profit), margin_pct: r.margin_pct == null ? null : Number(r.margin_pct)
         })));
-      } else {
-        setRows([]);
-      }
-      const firstError = [kpiRes, rowsRes].find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined;
+      } else setRows([]);
+
+      const firstError = [kpiRes, rowsRes, trendRes].find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined;
       setLoadError(firstError ? (firstError.reason instanceof Error ? firstError.reason.message : 'Failed to load pricing analytics') : '');
     });
-
     return () => { active = false; };
-  }, [filters, costOnly]);
+  }, [filters]);
+
+  const activeGraphicParts = graphicParts.length ? graphicParts : selectedParts.slice(0, 6);
+  useEffect(() => {
+    if (!activeGraphicParts.length) { setMultiSeries([]); return; }
+    getRevenueByMonthAndPartForParts(filters, activeGraphicParts).then((rowsData) => setMultiSeries(rowsData as Record<string, unknown>[]));
+  }, [filters, activeGraphicParts.join('|')]);
 
   const rowsSorted = useMemo(() => {
     const v = [...rows];
-    const value = (r: PricingRow) => {
-      if (rankBy === 'price') return r.amount;
-      if (rankBy === 'cost') return Number(r.cost ?? Number.NEGATIVE_INFINITY);
-      if (rankBy === 'profit') return Number(r.profit ?? Number.NEGATIVE_INFINITY);
-      return Number(r.margin_pct ?? Number.NEGATIVE_INFINITY);
-    };
+    const value = (r: PricingRow) => rankBy === 'price' ? r.amount : rankBy === 'cost' ? Number(r.cost ?? Number.NEGATIVE_INFINITY) : rankBy === 'profit' ? Number(r.profit ?? Number.NEGATIVE_INFINITY) : Number(r.margin_pct ?? Number.NEGATIVE_INFINITY);
     v.sort((a, b) => order === 'desc' ? value(b) - value(a) : value(a) - value(b));
     return v;
   }, [rows, rankBy, order]);
 
+  const trendData = useMemo(() => trend.map((r) => ({ period: String(r.period ?? ''), revenue: Number(r.revenue ?? 0), cost: Number(r.cost ?? 0), profit: Number(r.profit ?? 0), margin_pct: Number(r.margin_pct ?? 0) })), [trend]);
+  const multiTrend = useMemo(() => {
+    const map = new Map<string, Record<string, string | number>>();
+    multiSeries.forEach((r) => {
+      const month = String(r.month ?? ''); const part = String(r.part_num ?? ''); if (!month || !part) return;
+      if (!map.has(month)) map.set(month, { month });
+      map.get(month)![part] = Number(r.revenue ?? 0);
+    });
+    return [...map.values()].sort((a, b) => String(a.month).localeCompare(String(b.month)));
+  }, [multiSeries]);
+
   useEffect(() => {
-    setPageState('pricing', { costOnly, periodMode, fromMonth, toMonth, searchText, rankBy, order, selectedCustomers, selectedCountries, selectedTerritories, selectedParts, selectedProdGroups, selectedClasses });
-  }, [costOnly, periodMode, fromMonth, toMonth, searchText, rankBy, order, selectedCustomers, selectedCountries, selectedTerritories, selectedParts, selectedProdGroups, selectedClasses, setPageState]);
+    setPageState('pricing', { periodMode, fromMonth, toMonth, searchText, rankBy, order, graphicParts: activeGraphicParts, graphicsCollapsed, selectedCustomers, selectedCountries, selectedTerritories, selectedParts, selectedProdGroups, selectedClasses });
+  }, [periodMode, fromMonth, toMonth, searchText, rankBy, order, activeGraphicParts.join('|'), graphicsCollapsed, selectedCustomers, selectedCountries, selectedTerritories, selectedParts, selectedProdGroups, selectedClasses, setPageState]);
 
   const chips = [
-    ...selectedCustomers.map((v) => ({ k: 'customers' as const, v })),
-    ...selectedCountries.map((v) => ({ k: 'countries' as const, v })),
-    ...selectedTerritories.map((v) => ({ k: 'territories' as const, v })),
-    ...selectedParts.map((v) => ({ k: 'parts' as const, v })),
-    ...selectedProdGroups.map((v) => ({ k: 'prodGroups' as const, v })),
-    ...selectedClasses.map((v) => ({ k: 'classes' as const, v }))
+    ...selectedCustomers.map((v) => ({ k: 'customers' as const, v })), ...selectedCountries.map((v) => ({ k: 'countries' as const, v })), ...selectedTerritories.map((v) => ({ k: 'territories' as const, v })),
+    ...selectedParts.map((v) => ({ k: 'parts' as const, v })), ...selectedProdGroups.map((v) => ({ k: 'prodGroups' as const, v })), ...selectedClasses.map((v) => ({ k: 'classes' as const, v }))
   ];
   const removeValue = (kind: 'customers' | 'countries' | 'territories' | 'parts' | 'prodGroups' | 'classes', value: string) => {
     if (kind === 'customers') setSelectedCustomers((x) => x.filter((v) => v !== value));
@@ -172,8 +180,7 @@ export function PricingPage() {
   };
 
   return <div>
-    <PageHeader title="Pricing & Profitability" subtitle={`Cost Included: ${costOnly ? 'Yes' : 'No'} • ${datasetMeta?.dateRange ?? ''}`} actions={<div className="grid grid-cols-4 gap-2 items-end">
-      <label className="text-xs text-[var(--text-muted)]">Cost Included<select value={String(costOnly)} onChange={(e) => setCostOnly(e.target.value === 'true')} className="card w-full px-2 py-1 mt-1"><option value="true">Yes</option><option value="false">No</option></select></label>
+    <PageHeader title="Pricing & Profitability" subtitle={`Cost Included: Yes • ${datasetMeta?.dateRange ?? ''}`} actions={<div className="grid grid-cols-3 gap-2 items-end">
       <label className="text-xs text-[var(--text-muted)]">Period<select value={periodMode} onChange={(e) => setPeriodMode(e.target.value as PeriodMode)} className="card w-full px-2 py-1 mt-1"><option value="all">All</option><option value="after">After (month)</option><option value="before">Before (month)</option><option value="between">Between (months)</option></select></label>
       <label className="text-xs text-[var(--text-muted)]">Rank by<select value={rankBy} onChange={(e) => setRankBy(e.target.value as RankBy)} className="card w-full px-2 py-1 mt-1"><option value="price">Price</option><option value="cost">Cost</option><option value="profit">Profit</option><option value="profit_pct">Profit %</option></select></label>
       <label className="text-xs text-[var(--text-muted)]">Order<select value={order} onChange={(e) => setOrder(e.target.value as SortDir)} className="card w-full px-2 py-1 mt-1"><option value="desc">Descending</option><option value="asc">Ascending</option></select></label>
@@ -197,6 +204,20 @@ export function PricingPage() {
         {(periodMode === 'before' || periodMode === 'between') && <label className="text-xs text-[var(--text-muted)]">To YYYY-MM<input value={toMonth} onChange={(e) => { const n = safeMonthInput(e.target.value); if (n !== null) setToMonth(n); }} className="card w-full px-2 py-1 mt-1" /></label>}
       </div>
       {chips.length > 0 && <div className="flex flex-wrap gap-2 mt-3">{chips.map((c) => <button key={`${c.k}:${c.v}`} className="card px-2 py-1 text-xs" onClick={() => removeValue(c.k, c.v)}>{c.k}:{c.v} ×</button>)}</div>}
+    </section>
+
+    <section className="mb-4 border-2 border-[var(--teal)]/40 rounded-2xl p-4 bg-[var(--surface)]/20">
+      <div className="flex items-center justify-between mb-3"><h3 className="font-semibold text-base">Pricing Graphics</h3><button className="card px-3 py-1 text-xs" onClick={() => setGraphicsCollapsed((x) => !x)}>{graphicsCollapsed ? 'Show pricing graphics' : 'Hide pricing graphics'}</button></div>
+      {!graphicsCollapsed && <div className="grid xl:grid-cols-2 gap-4">
+        <section className="card p-3 h-[22rem]"><h3 className="font-semibold mb-2">Revenue vs. Time</h3><ResponsiveContainer><LineChart data={trendData}><XAxis dataKey="period"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} /><Line type="monotone" dataKey="revenue" stroke="#06b6d4" /></LineChart></ResponsiveContainer></section>
+        <section className="card p-3 h-[22rem]"><h3 className="font-semibold mb-2">Cost vs. Time</h3><ResponsiveContainer><LineChart data={trendData}><XAxis dataKey="period"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} /><Line type="monotone" dataKey="cost" stroke="#f59e0b" /></LineChart></ResponsiveContainer></section>
+        <section className="card p-3 h-[22rem]"><h3 className="font-semibold mb-2">Profit vs. Time</h3><ResponsiveContainer><LineChart data={trendData}><XAxis dataKey="period"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} /><Line type="monotone" dataKey="profit" stroke="#22c55e" /></LineChart></ResponsiveContainer></section>
+        <section className="card p-3 h-[22rem]"><h3 className="font-semibold mb-2">Margin % vs. Time</h3><ResponsiveContainer><LineChart data={trendData}><XAxis dataKey="period"/><YAxis/><Tooltip formatter={(v) => pct(Number(v))} /><Line type="monotone" dataKey="margin_pct" stroke="#a855f7" /></LineChart></ResponsiveContainer></section>
+        <section className="card p-3 h-[24rem] xl:col-span-2"><h3 className="font-semibold mb-2">Parts Comparison (multiple curves)</h3>
+          <div className="mb-2 text-xs text-[var(--text-muted)]"><div className="mb-1">Parts in graphic</div><div className="card p-2 max-h-24 overflow-auto"><div className="grid md:grid-cols-4 gap-1">{partOptions.slice(0, 40).map((o) => <label key={o.value} className="flex items-center gap-2"><input type="checkbox" checked={activeGraphicParts.includes(o.value)} onChange={() => setGraphicParts((prev) => prev.includes(o.value) ? prev.filter((p) => p !== o.value) : [...prev, o.value].slice(0, 8))} /><span className="truncate">{o.value}</span></label>)}</div></div></div>
+          <div className="h-[16rem]"><ResponsiveContainer><LineChart data={multiTrend}><XAxis dataKey="month"/><YAxis/><Tooltip shared formatter={(v) => currency(Number(v))} />{activeGraphicParts.slice(0, 8).map((p, i) => <Line key={p} type="monotone" dataKey={p} stroke={["#0ea5e9", "#22c55e", "#f97316", "#a855f7", "#06b6d4", "#f43f5e", "#eab308", "#10b981"][i % 8]} dot={false} connectNulls />)}</LineChart></ResponsiveContainer></div>
+        </section>
+      </div>}
     </section>
 
     <div className="grid md:grid-cols-4 gap-3 mb-4">
