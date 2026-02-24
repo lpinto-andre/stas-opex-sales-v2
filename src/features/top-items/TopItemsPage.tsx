@@ -105,6 +105,7 @@ export function TopItemsPage() {
   const [topOrdTotals, setTopOrdTotals] = useState<Record<string, unknown>[]>([]);
   const [topRevByFyPart, setTopRevByFyPart] = useState<Record<string, unknown>[]>([]);
   const [topOrdByFyPart, setTopOrdByFyPart] = useState<Record<string, unknown>[]>([]);
+  const [graphicsCollapsed, setGraphicsCollapsed] = useState(Boolean(saved.graphicsCollapsed ?? false));
 
   useEffect(() => { getCustomerOptions(customerSearch, 150).then((r) => setCustomerOptions(r.map((x) => ({ value: x.value, label: x.label })))); }, [customerSearch]);
   useEffect(() => { getDistinctOptions('country', countrySearch, 150).then((r) => setCountryOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [countrySearch]);
@@ -322,8 +323,8 @@ export function TopItemsPage() {
   }, [topFilters, filters, limitedTopParts]);
 
   useEffect(() => {
-    setPageState('top-items', { topN, graphicsTopN: boundedGraphicsTopN, topFilters, k, m, periodMode, fromMonth, toMonth, searchText, selectedCustomers, selectedCountries, selectedParts, selectedProdGroups, weights });
-  }, [topN, boundedGraphicsTopN, topFilters, k, m, periodMode, fromMonth, toMonth, searchText, selectedCustomers, selectedCountries, selectedParts, selectedProdGroups, weights, setPageState]);
+    setPageState('top-items', { topN, graphicsTopN: boundedGraphicsTopN, graphicsCollapsed, topFilters, k, m, periodMode, fromMonth, toMonth, searchText, selectedCustomers, selectedCountries, selectedParts, selectedProdGroups, weights });
+  }, [topN, boundedGraphicsTopN, graphicsCollapsed, topFilters, k, m, periodMode, fromMonth, toMonth, searchText, selectedCustomers, selectedCountries, selectedParts, selectedProdGroups, weights, setPageState]);
 
   useEffect(() => {
     setTopItemsSelection({ partNums: rankedPartNums, topN: boundedGraphicsTopN });
@@ -364,9 +365,7 @@ export function TopItemsPage() {
   const cardTitle = (title: string, key: TopKey) => <div className="flex items-center justify-between mb-2"><h3 className="font-semibold">{title}</h3><Link className="card px-2 py-1 text-xs" to={`/explorer/graphic/${key}`}>Expand</Link></div>;
 
   return <div>
-    <PageHeader title="Top Items Scoring Model" subtitle="Weighted deterministic model for top parts." actions={<div className="grid grid-cols-5 gap-2 items-end">
-      <label className="text-xs text-[var(--text-muted)]">Items to show on table<input type="number" value={topN} onChange={(e) => setTopN(Number(e.target.value || 50))} className="card w-full px-2 py-1 mt-1" /></label>
-      <label className="text-xs text-[var(--text-muted)]">Items to show on graphics<input type="number" min={1} max={10} value={boundedGraphicsTopN} onChange={(e) => setGraphicsTopN(Math.max(1, Math.min(10, Number(e.target.value || 5))))} className="card w-full px-2 py-1 mt-1" /></label>
+    <PageHeader title="Top Items Scoring Model" subtitle="Weighted deterministic model for top parts." actions={<div className="grid grid-cols-3 gap-2 items-end">
       <label className="text-xs text-[var(--text-muted)]">Recent FY window (k)<input type="number" value={k} onChange={(e) => setK(Number(e.target.value || 2))} className="card w-full px-2 py-1 mt-1" /></label>
       <label className="text-xs text-[var(--text-muted)]">Past FY window (m)<input type="number" value={m} onChange={(e) => setM(Number(e.target.value || 3))} className="card w-full px-2 py-1 mt-1" /></label>
       <label className="text-xs text-[var(--text-muted)]">Period<select value={periodMode} onChange={(e) => setPeriodMode(e.target.value as PeriodMode)} className="card px-2 py-1 block w-full mt-1"><option value="all">All</option><option value="after">After (month)</option><option value="before">Before (month)</option><option value="between">Between (months)</option></select></label>
@@ -382,6 +381,8 @@ export function TopItemsPage() {
         <div className="space-y-2"><input value={groupSearch} onChange={(e) => setGroupSearch(e.target.value)} placeholder="Search group" className="card w-full px-2 py-1 text-xs" /><MultiPick label="ProdGroups" options={groupOptions} values={selectedProdGroups} onChange={setSelectedProdGroups} /></div>
       </div>
       <div className="grid md:grid-cols-4 gap-2 mt-3">
+        <label className="text-xs text-[var(--text-muted)]">Items to show on table<input type="number" value={topN} onChange={(e) => setTopN(Number(e.target.value || 50))} className="card w-full px-2 py-1 mt-1" /></label>
+        <label className="text-xs text-[var(--text-muted)]">Items to show on graphics<input type="number" min={1} max={10} value={boundedGraphicsTopN} onChange={(e) => setGraphicsTopN(Math.max(1, Math.min(10, Number(e.target.value || 5))))} className="card w-full px-2 py-1 mt-1" /></label>
         <label className="text-xs text-[var(--text-muted)]">LineDesc contains<input value={searchText} onChange={(e) => setSearchText(e.target.value)} className="card w-full px-2 py-1 mt-1" /></label>
         {(periodMode === 'after' || periodMode === 'between') && <label className="text-xs text-[var(--text-muted)]">From YYYY-MM<input type="text" inputMode="numeric" placeholder="YYYY-MM" value={fromMonth} onChange={(e) => { const next = safeMonthInput(e.target.value); if (next !== null) setFromMonth(next); }} className="card w-full px-2 py-1 mt-1" /></label>}
         {(periodMode === 'before' || periodMode === 'between') && <label className="text-xs text-[var(--text-muted)]">To YYYY-MM<input type="text" inputMode="numeric" placeholder="YYYY-MM" value={toMonth} onChange={(e) => { const next = safeMonthInput(e.target.value); if (next !== null) setToMonth(next); }} className="card w-full px-2 py-1 mt-1" /></label>}
@@ -394,24 +395,28 @@ export function TopItemsPage() {
       <p className="text-xs text-[var(--text-muted)] mb-2">Values can be any positive numbers. We normalize internally so the total influence is balanced.</p>
       <p className="text-xs text-[var(--text-muted)] mb-2">Recent FY window (k) = number of most recent fiscal years used for trend averages. Past FY window (m) = number of fiscal years immediately before that recent block.</p>
       <div className="grid md:grid-cols-3 gap-2">
-        {(Object.keys(weights) as (keyof Weights)[]).map((key) => <label key={key} className="text-xs text-[var(--text-muted)]">{key}
-          <input type="number" min={0} step={1} value={weights[key]} onChange={(e) => setWeights((w) => ({ ...w, [key]: Math.max(0, Number(e.target.value || 0)) }))} className="card w-full px-2 py-1 mt-1" />
+        {(Object.keys(weights) as (keyof Weights)[]).map((key) => <label key={key} className="text-xs text-[var(--text-muted)]"><span className="text-white font-semibold">{String(key).charAt(0).toUpperCase() + String(key).slice(1)}</span>
+          <input type="number" min={0} max={100} step={1} value={weights[key]} onChange={(e) => setWeights((w) => ({ ...w, [key]: Math.max(0, Math.min(100, Number(e.target.value || 0))) }))} className="card w-full px-2 py-1 mt-1" />
           <span className="block mt-1">{weightDesc[key]}</span>
+          <span className="block mt-1 text-[10px]">Maximum: 100</span>
         </label>)}
       </div>
     </section>
 
 
     <section className="mb-4 border-2 border-[var(--teal)]/40 rounded-2xl p-4 bg-[var(--surface)]/20">
-      <h3 className="font-semibold mb-3 text-base">Top Items Graphics</h3>
-      <div className="grid xl:grid-cols-2 gap-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold text-base">Top Items Graphics</h3>
+        <button className="card px-3 py-1 text-xs" onClick={() => setGraphicsCollapsed((x) => !x)}>{graphicsCollapsed ? 'Show top-items graphics' : 'Hide top-items graphics'}</button>
+      </div>
+      {!graphicsCollapsed && <div className="grid xl:grid-cols-2 gap-4">
         <section className="card p-3 min-h-[34rem] flex flex-col">{cardTitle('Top Items: Revenue by Time', 'trendRevenue')}{renderTopControls('trendRevenue')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopRev}><XAxis dataKey="fy"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Line type="monotone" dataKey="revenue" stroke="#06b6d4"/></LineChart></ResponsiveContainer></div></section>
         <section className="card p-3 min-h-[34rem] flex flex-col">{cardTitle('Top Items: Orders by Time', 'trendOrders')}{renderTopControls('trendOrders')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopOrd}><XAxis dataKey="fy"/><YAxis/><Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Line type="monotone" dataKey="orders" stroke="#84cc16"/></LineChart></ResponsiveContainer></div></section>
         <section className="card p-3 min-h-[34rem] flex flex-col">{cardTitle('Top Items: Total Revenue', 'totalRevenue')}{renderTopControls('totalRevenue')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><BarChart data={chartTopRevTotals}><XAxis dataKey="part_num"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Bar dataKey="revenue" fill="#0ea5e9"/></BarChart></ResponsiveContainer></div></section>
         <section className="card p-3 min-h-[34rem] flex flex-col">{cardTitle('Top Items: Total Orders', 'totalOrders')}{renderTopControls('totalOrders')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><BarChart data={chartTopOrdTotals}><XAxis dataKey="part_num"/><YAxis/><Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Bar dataKey="orders" fill="#65a30d"/></BarChart></ResponsiveContainer></div></section>
         <section className="card p-3 min-h-[34rem] flex flex-col">{cardTitle('Top Items: Revenue by Time (multiple curves)', 'multiRevenue')}{renderTopControls('multiRevenue')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopRevMulti}><XAxis dataKey="fy"/><YAxis/><Tooltip shared formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />{multiRevSeries.map((p, i) => <Line key={p} type="monotone" dataKey={p} name={p} stroke={["#0ea5e9", "#22c55e", "#f97316", "#a855f7", "#06b6d4", "#f43f5e", "#eab308", "#10b981"][i % 8]} connectNulls dot />)}</LineChart></ResponsiveContainer></div></section>
         <section className="card p-3 min-h-[34rem] flex flex-col">{cardTitle('Top Items: Orders by Time (multiple curves)', 'multiOrders')}{renderTopControls('multiOrders')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopOrdMulti}><XAxis dataKey="fy"/><YAxis/><Tooltip shared contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />{multiOrdSeries.map((p, i) => <Line key={p} type="monotone" dataKey={p} name={p} stroke={["#84cc16", "#14b8a6", "#f59e0b", "#8b5cf6", "#f43f5e", "#0ea5e9", "#22c55e", "#eab308"][i % 8]} connectNulls dot />)}</LineChart></ResponsiveContainer></div></section>
-      </div>
+      </div>}
     </section>
 
     <section className="card overflow-auto">

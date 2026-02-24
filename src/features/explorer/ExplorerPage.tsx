@@ -315,7 +315,7 @@ export function ExplorerPage() {
   const cardTitle = (title: string, key: TopKey) => <div className="flex items-center justify-between mb-2"><h3 className="font-semibold">{title}</h3><Link className="card px-2 py-1 text-xs" to={`/explorer/graphic/${key}`}>Expand</Link></div>;
 
   return <div>
-    <PageHeader title="Discover" subtitle="Real-time DuckDB analytics across imported dataset." actions={<div className="flex gap-2"><button className="card px-3 py-2" onClick={resetAll}>Reset filters</button></div>} />
+    <PageHeader title="Dashboard" subtitle="Real-time DuckDB analytics across imported dataset." actions={<div className="flex gap-2"><button className="card px-3 py-2" onClick={resetAll}>Reset filters</button></div>} />
 
     <section className="card p-3 mb-3">{/* filters omitted for brevity in this file style */}
       <h3 className="font-semibold mb-2">Filters</h3>
