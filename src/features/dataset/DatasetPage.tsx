@@ -51,7 +51,8 @@ export function DatasetPage() {
   const datasetMeta = useAppStore((s) => s.datasetMeta);
   const setDataset = useAppStore((s) => s.setDataset);
   const setPageState = useAppStore((s) => s.setPageState);
-  const potentialState = useAppStore((s) => (s.pageState.potential as Record<string, unknown>) ?? {});
+  const potentialStateRaw = useAppStore((s) => s.pageState.potential as Record<string, unknown> | undefined);
+  const potentialState = potentialStateRaw ?? {};
 
   useEffect(() => {
     if (!toast) return;

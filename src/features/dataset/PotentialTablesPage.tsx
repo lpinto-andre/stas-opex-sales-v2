@@ -2,7 +2,8 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { useAppStore } from '@/state/store';
 
 export function PotentialTablesPage() {
-  const data = useAppStore((s) => (s.pageState.potential as Record<string, unknown>) ?? {});
+  const dataRaw = useAppStore((s) => s.pageState.potential as Record<string, unknown> | undefined);
+  const data = dataRaw ?? {};
   const summary = (data.summaryTable as Record<string, unknown>[]) ?? [];
   const consumables = (data.consumablesTable as Record<string, unknown>[]) ?? [];
   const equipment = (data.equipmentSummaryTable as Record<string, unknown>[]) ?? [];
