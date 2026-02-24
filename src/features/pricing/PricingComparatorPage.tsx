@@ -98,8 +98,14 @@ export function PricingComparatorPage() {
   }, [baseFilters, compareBy, selectedValues]);
 
   useEffect(() => {
-    setPageState('pricing', { ...saved, comparatorCompareBy: compareBy, comparatorSelectedValues: selectedValues });
-  }, [compareBy, selectedValues, saved, setPageState]);
+    setPageState('pricing', {
+      ...saved,
+      comparatorCompareBy: compareBy,
+      comparatorSelectedValues: selectedValues
+    });
+    // Persist comparator controls only when they change to avoid render loops.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compareBy, selectedValues, setPageState]);
 
   const chartData = tableRows;
 

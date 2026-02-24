@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
 import { Bar, BarChart, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { getCustomerOptions, getDistinctOptions, getOrderTotalsForParts, getOrdersByFYAndPartForParts, getOrdersByFYForParts, getPartYearMetrics, getPartsOrdersByFY, getPartsPriorityRows, getPartsRevenueByFY, getRevenueByFYAndPartForParts, getRevenueByFYForParts, getRevenueTotalsForParts, type Filters } from '@/data/queries';
+import { getCustomerOptions, getDistinctOptions, getOrderTotalsForParts, getOrdersByFYAndPartForParts, getOrdersByFYForParts, getPartYearMetrics, getPartsOrdersByFY, getPartsPriorityRows, getPartsRevenueByFY, getRevenueByFYAndPartForParts, getRevenueByFYForParts, getRevenueCostProfitOverTime, getRevenueTotalsForParts, type Filters } from '@/data/queries';
 import { useAppStore } from '@/state/store';
 
 type Option = { value: string; label: string };
@@ -105,6 +105,7 @@ export function TopItemsPage() {
   const [topOrdTotals, setTopOrdTotals] = useState<Record<string, unknown>[]>([]);
   const [topRevByFyPart, setTopRevByFyPart] = useState<Record<string, unknown>[]>([]);
   const [topOrdByFyPart, setTopOrdByFyPart] = useState<Record<string, unknown>[]>([]);
+  const [topValueByFy, setTopValueByFy] = useState<Record<string, unknown>[]>([]);
   const [graphicsCollapsed, setGraphicsCollapsed] = useState(Boolean(saved.graphicsCollapsed ?? false));
 
   useEffect(() => { getCustomerOptions(customerSearch, 150).then((r) => setCustomerOptions(r.map((x) => ({ value: x.value, label: x.label })))); }, [customerSearch]);
@@ -336,6 +337,9 @@ export function TopItemsPage() {
   const chartTopOrd = topOrdByFy.map((r) => ({ fy: String(r.fy ?? ''), orders: Number(r.orders ?? 0) }));
   const chartTopRevTotals = topRevTotals.map((r) => ({ part_num: String(r.part_num ?? ''), revenue: Math.round(Number(r.revenue ?? 0)) }));
   const chartTopOrdTotals = topOrdTotals.map((r) => ({ part_num: String(r.part_num ?? ''), orders: Number(r.orders ?? 0) }));
+  const chartTopCost = topValueByFy.map((r) => ({ fy: String(r.period ?? ''), cost: Number(r.cost ?? 0) }));
+  const chartTopProfit = topValueByFy.map((r) => ({ fy: String(r.period ?? ''), profit: Number(r.profit ?? 0) }));
+  const chartTopMargin = topValueByFy.map((r) => ({ fy: String(r.period ?? ''), margin_pct: Number(r.margin_pct ?? 0) }));
   const multiRevSeries = (topFilters.multiRevenue.parts.length ? topFilters.multiRevenue.parts : limitedTopParts).slice(0, 8);
   const multiOrdSeries = (topFilters.multiOrders.parts.length ? topFilters.multiOrders.parts : limitedTopParts).slice(0, 8);
   const pivotByFy = (rows: Record<string, unknown>[], valueKey: 'revenue' | 'orders', series: string[]) => {
@@ -412,6 +416,9 @@ export function TopItemsPage() {
       {!graphicsCollapsed && <div className="grid xl:grid-cols-2 gap-4">
         <section className="card p-3 min-h-[34rem] flex flex-col">{cardTitle('Top Items: Revenue by Time', 'trendRevenue')}{renderTopControls('trendRevenue')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopRev}><XAxis dataKey="fy"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Line type="monotone" dataKey="revenue" stroke="#06b6d4"/></LineChart></ResponsiveContainer></div></section>
         <section className="card p-3 min-h-[34rem] flex flex-col">{cardTitle('Top Items: Orders by Time', 'trendOrders')}{renderTopControls('trendOrders')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopOrd}><XAxis dataKey="fy"/><YAxis/><Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Line type="monotone" dataKey="orders" stroke="#84cc16"/></LineChart></ResponsiveContainer></div></section>
+        <section className="card p-3 min-h-[34rem] flex flex-col"><h3 className="font-semibold mb-2">Top Items: Cost by Time</h3><div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopCost}><XAxis dataKey="fy"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Line type="monotone" dataKey="cost" stroke="#f59e0b"/></LineChart></ResponsiveContainer></div></section>
+        <section className="card p-3 min-h-[34rem] flex flex-col"><h3 className="font-semibold mb-2">Top Items: Profit by Time</h3><div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopProfit}><XAxis dataKey="fy"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Line type="monotone" dataKey="profit" stroke="#22c55e"/></LineChart></ResponsiveContainer></div></section>
+        <section className="card p-3 min-h-[34rem] flex flex-col"><h3 className="font-semibold mb-2">Top Items: Margin % by Time</h3><div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopMargin}><XAxis dataKey="fy"/><YAxis/><Tooltip formatter={(v) => pct(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Line type="monotone" dataKey="margin_pct" stroke="#a855f7"/></LineChart></ResponsiveContainer></div></section>
         <section className="card p-3 min-h-[34rem] flex flex-col">{cardTitle('Top Items: Total Revenue', 'totalRevenue')}{renderTopControls('totalRevenue')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><BarChart data={chartTopRevTotals}><XAxis dataKey="part_num"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Bar dataKey="revenue" fill="#0ea5e9"/></BarChart></ResponsiveContainer></div></section>
         <section className="card p-3 min-h-[34rem] flex flex-col">{cardTitle('Top Items: Total Orders', 'totalOrders')}{renderTopControls('totalOrders')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><BarChart data={chartTopOrdTotals}><XAxis dataKey="part_num"/><YAxis/><Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} /><Bar dataKey="orders" fill="#65a30d"/></BarChart></ResponsiveContainer></div></section>
         <section className="card p-3 min-h-[34rem] flex flex-col">{cardTitle('Top Items: Revenue by Time (multiple curves)', 'multiRevenue')}{renderTopControls('multiRevenue')}<div className="flex-1 min-h-[18rem]"><ResponsiveContainer><LineChart data={chartTopRevMulti}><XAxis dataKey="fy"/><YAxis/><Tooltip shared formatter={(v) => currency(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />{multiRevSeries.map((p, i) => <Line key={p} type="monotone" dataKey={p} name={p} stroke={["#0ea5e9", "#22c55e", "#f97316", "#a855f7", "#06b6d4", "#f43f5e", "#eab308", "#10b981"][i % 8]} connectNulls dot />)}</LineChart></ResponsiveContainer></div></section>

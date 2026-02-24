@@ -193,10 +193,7 @@ export function PricingPage() {
   };
 
   return <div>
-    <PageHeader title="Pricing" subtitle={datasetMeta ? `${datasetMeta.dateRange} · ${datasetMeta.rowCount.toLocaleString()} rows` : 'Upload dataset to start'} actions={<div className="grid grid-cols-2 gap-2 items-end">
-      <label className="text-xs text-[var(--text-muted)]">Rank by<select value={rankBy} onChange={(e) => setRankBy(e.target.value as RankBy)} className="card px-2 py-1 block w-full mt-1"><option value="price">Price</option><option value="cost">Cost</option><option value="profit">Profit</option><option value="profit_pct">Profit %</option></select></label>
-      <label className="text-xs text-[var(--text-muted)]">Sort<select value={order} onChange={(e) => setOrder(e.target.value as SortDir)} className="card px-2 py-1 block w-full mt-1"><option value="desc">Desc</option><option value="asc">Asc</option></select></label>
-    </div>} />
+    <PageHeader title="Pricing" subtitle={datasetMeta ? `${datasetMeta.dateRange} · ${datasetMeta.rowCount.toLocaleString()} rows` : 'Upload dataset to start'} />
 
     {loadError && <div className="card p-3 mb-3 border border-red-400/40 text-red-300 text-sm">{loadError}</div>}
 
@@ -254,6 +251,14 @@ export function PricingPage() {
         </section>
       </div>}
     </section>
+
+    <section className="card p-3 mb-3">
+      <div className="grid md:grid-cols-4 gap-2">
+        <label className="text-xs text-[var(--text-muted)]">Rank by<select value={rankBy} onChange={(e) => setRankBy(e.target.value as RankBy)} className="card px-2 py-1 block w-full mt-1"><option value="price">Price</option><option value="cost">Cost</option><option value="profit">Profit</option><option value="profit_pct">Profit %</option></select></label>
+        <label className="text-xs text-[var(--text-muted)]">Sort<select value={order} onChange={(e) => setOrder(e.target.value as SortDir)} className="card px-2 py-1 block w-full mt-1"><option value="desc">Desc</option><option value="asc">Asc</option></select></label>
+      </div>
+    </section>
+
 
     <section className="card overflow-auto">
       <table className="w-full table-auto text-sm">
