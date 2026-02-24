@@ -6,12 +6,15 @@ import { getCustomerOptions, getDistinctOptions, getRevenueCostProfitOverTime, t
 import { useAppStore } from '@/state/store';
 
 type CompareBy = 'country' | 'customer' | 'part_num' | 'prod_group';
+type AndCompareBy = 'none' | CompareBy;
+type PeriodMode = 'all' | 'after' | 'before' | 'between';
 type Option = { value: string; label: string };
 
 const COLORS = ['#0ea5e9', '#22c55e', '#f97316', '#a855f7', '#06b6d4'];
 const currency = (v: number) => `$${Math.round(v).toLocaleString()}`;
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 const isValidMonth = (m: string) => /^\d{4}-\d{2}$/.test(m);
+const safeMonthInput = (v: string) => (/^\d{0,4}(?:-\d{0,2})?$/.test(v) ? v : null);
 const monthStart = (m: string) => (isValidMonth(m) ? `${m}-01` : '');
 const monthEnd = (m: string) => {
   if (!isValidMonth(m)) return '';
@@ -25,6 +28,16 @@ function MultiPick({ options, values, onChange }: { options: Option[]; values: s
   return <div className="card h-40 overflow-auto p-2 space-y-1">{options.map((o) => <label key={o.value} className="flex items-center gap-2 text-xs"><input type="checkbox" checked={values.includes(o.value)} onChange={() => toggle(o.value)} /><span className="truncate">{o.label}</span></label>)}</div>;
 }
 
+const loadOptions = async (by: CompareBy, lookup: string) => {
+  if (by === 'customer') {
+    const rows = await getCustomerOptions(lookup, 120);
+    return rows.map((r) => ({ value: r.value, label: r.label }));
+  }
+  const column = by === 'country' ? 'country' : by === 'part_num' ? 'part_num' : 'prod_group';
+  const rows = await getDistinctOptions(column, lookup, 120);
+  return rows.map((r) => ({ value: r.value, label: r.value }));
+};
+
 const applyCompareFilter = (filters: Filters, by: CompareBy, value: string): Filters => {
   if (by === 'country') return { ...filters, countries: [value] };
   if (by === 'customer') return { ...filters, customers: [value] };
@@ -36,51 +49,71 @@ export function PricingComparatorPage() {
   const saved = useAppStore((s) => (s.pageState.pricing as Record<string, unknown>) ?? {});
   const setPageState = useAppStore((s) => s.setPageState);
 
-  const [compareBy, setCompareBy] = useState<CompareBy>((saved.comparatorCompareBy as CompareBy) ?? 'part_num');
+  const [compareBy, setCompareBy] = useState<CompareBy>((saved.comparatorCompareBy as CompareBy) ?? 'country');
   const [lookup, setLookup] = useState('');
   const [options, setOptions] = useState<Option[]>([]);
   const [selectedValues, setSelectedValues] = useState<string[]>((saved.comparatorSelectedValues as string[]) ?? []);
+
+  const [andCompareBy, setAndCompareBy] = useState<AndCompareBy>((saved.comparatorAndBy as AndCompareBy) ?? 'none');
+  const [andLookup, setAndLookup] = useState('');
+  const [andOptions, setAndOptions] = useState<Option[]>([]);
+  const [andValue, setAndValue] = useState(String(saved.comparatorAndValue ?? ''));
+
+  const [periodMode, setPeriodMode] = useState<PeriodMode>((saved.comparatorPeriodMode as PeriodMode) ?? 'all');
+  const [fromMonth, setFromMonth] = useState(String(saved.comparatorFromMonth ?? ''));
+  const [toMonth, setToMonth] = useState(String(saved.comparatorToMonth ?? ''));
+
   const [tableRows, setTableRows] = useState<Record<string, string | number>[]>([]);
 
   const baseFilters = useMemo<Filters>(() => {
     const f: Filters = {
-      customers: (saved.selectedCustomers as string[])?.length ? (saved.selectedCustomers as string[]) : undefined,
-      countries: (saved.selectedCountries as string[])?.length ? (saved.selectedCountries as string[]) : undefined,
       territories: (saved.selectedTerritories as string[])?.length ? (saved.selectedTerritories as string[]) : undefined,
-      parts: (saved.selectedParts as string[])?.length ? (saved.selectedParts as string[]) : undefined,
-      prodGroups: (saved.selectedProdGroups as string[])?.length ? (saved.selectedProdGroups as string[]) : undefined,
       classes: (saved.selectedClasses as string[])?.length ? (saved.selectedClasses as string[]) : undefined,
       searchLineDesc: String(saved.searchText ?? '') || undefined
     };
-    const mode = String(saved.periodMode ?? 'all');
-    const fromMonth = String(saved.fromMonth ?? '');
-    const toMonth = String(saved.toMonth ?? '');
-    if (mode === 'after') f.startDate = monthStart(fromMonth) || undefined;
-    if (mode === 'before') f.endDate = monthEnd(toMonth) || undefined;
-    if (mode === 'between') { f.startDate = monthStart(fromMonth) || undefined; f.endDate = monthEnd(toMonth) || undefined; }
+    if (periodMode === 'after') f.startDate = monthStart(fromMonth) || undefined;
+    if (periodMode === 'before') f.endDate = monthEnd(toMonth) || undefined;
+    if (periodMode === 'between') {
+      f.startDate = monthStart(fromMonth) || undefined;
+      f.endDate = monthEnd(toMonth) || undefined;
+    }
     return f;
-  }, [saved]);
+  }, [saved.selectedTerritories, saved.selectedClasses, saved.searchText, periodMode, fromMonth, toMonth]);
 
   useEffect(() => {
     setSelectedValues([]);
     setLookup('');
+    if (andCompareBy === compareBy) {
+      setAndCompareBy('none');
+      setAndValue('');
+      setAndLookup('');
+    }
   }, [compareBy]);
 
   useEffect(() => {
-    if (compareBy === 'customer') {
-      getCustomerOptions(lookup, 120).then((rows) => setOptions(rows.map((r) => ({ value: r.value, label: r.label }))));
+    loadOptions(compareBy, lookup).then(setOptions);
+  }, [compareBy, lookup]);
+
+  useEffect(() => {
+    if (andCompareBy === 'none') {
+      setAndOptions([]);
+      setAndValue('');
       return;
     }
-    const column = compareBy === 'country' ? 'country' : compareBy === 'part_num' ? 'part_num' : 'prod_group';
-    getDistinctOptions(column, lookup, 120).then((rows) => setOptions(rows.map((r) => ({ value: r.value, label: r.value }))));
-  }, [compareBy, lookup]);
+    loadOptions(andCompareBy, andLookup).then(setAndOptions);
+  }, [andCompareBy, andLookup]);
 
   useEffect(() => {
     if (!selectedValues.length) {
       setTableRows([]);
       return;
     }
-    Promise.all(selectedValues.map(async (value) => ({ value, rows: await getRevenueCostProfitOverTime(applyCompareFilter(baseFilters, compareBy, value), true, 'monthly') }))).then((seriesData) => {
+    Promise.all(selectedValues.map(async (value) => {
+      let f = applyCompareFilter(baseFilters, compareBy, value);
+      if (andCompareBy !== 'none' && andValue) f = applyCompareFilter(f, andCompareBy, andValue);
+      const rows = await getRevenueCostProfitOverTime(f, true, 'monthly');
+      return { value, rows };
+    })).then((seriesData) => {
       const byPeriod = new Map<string, Record<string, string | number>>();
       seriesData.forEach(({ value, rows }) => {
         (rows as Record<string, unknown>[]).forEach((r) => {
@@ -95,25 +128,27 @@ export function PricingComparatorPage() {
       });
       setTableRows([...byPeriod.values()].sort((a, b) => String(a.period).localeCompare(String(b.period))));
     });
-  }, [baseFilters, compareBy, selectedValues]);
+  }, [baseFilters, compareBy, selectedValues, andCompareBy, andValue]);
 
   useEffect(() => {
     setPageState('pricing', {
       ...saved,
       comparatorCompareBy: compareBy,
-      comparatorSelectedValues: selectedValues
+      comparatorSelectedValues: selectedValues,
+      comparatorAndBy: andCompareBy,
+      comparatorAndValue: andValue,
+      comparatorPeriodMode: periodMode,
+      comparatorFromMonth: fromMonth,
+      comparatorToMonth: toMonth
     });
-    // Persist comparator controls only when they change to avoid render loops.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [compareBy, selectedValues, setPageState]);
-
-  const chartData = tableRows;
+  }, [compareBy, selectedValues, andCompareBy, andValue, periodMode, fromMonth, toMonth, setPageState]);
 
   const renderMetricChart = (metric: 'revenue' | 'cost' | 'profit' | 'margin_pct', title: string, formatter: (v: number) => string) => (
     <section className="card p-3 h-[22rem] mb-4">
       <h3 className="font-semibold mb-2">{title}</h3>
       <ResponsiveContainer>
-        <LineChart data={chartData}>
+        <LineChart data={tableRows}>
           <XAxis dataKey="period" />
           <YAxis />
           <Tooltip shared formatter={(v) => formatter(Number(v))} />
@@ -124,10 +159,10 @@ export function PricingComparatorPage() {
   );
 
   return <div>
-    <PageHeader title="Pricing Comparator" subtitle="Compare up to 5 values by country, customer, part number, or product group." actions={<Link to="/pricing" className="card px-3 py-2">Back to Pricing</Link>} />
+    <PageHeader title="Pricing Comparator" subtitle="Compare up to 5 values with optional AND filter and period filter." actions={<Link to="/pricing" className="card px-3 py-2">Back to Pricing</Link>} />
 
     <section className="card p-3 mb-4">
-      <div className="grid md:grid-cols-3 gap-3">
+      <div className="grid md:grid-cols-2 gap-3">
         <label className="text-xs text-[var(--text-muted)]">Compare by
           <select value={compareBy} onChange={(e) => setCompareBy(e.target.value as CompareBy)} className="card w-full px-2 py-1 mt-1">
             <option value="country">Country</option>
@@ -136,10 +171,11 @@ export function PricingComparatorPage() {
             <option value="prod_group">ProdGroups</option>
           </select>
         </label>
-        <label className="text-xs text-[var(--text-muted)] md:col-span-2">Lookup {compareBy}
+        <label className="text-xs text-[var(--text-muted)]">Lookup {compareBy}
           <input value={lookup} onChange={(e) => setLookup(e.target.value)} placeholder="Type to search" className="card w-full px-2 py-1 mt-1" />
         </label>
       </div>
+
       <div className="grid md:grid-cols-2 gap-3 mt-3">
         <div>
           <div className="text-xs text-[var(--text-muted)] mb-1">Available values</div>
@@ -149,6 +185,37 @@ export function PricingComparatorPage() {
           <div className="text-xs text-[var(--text-muted)] mb-1">Selected filters (max 5)</div>
           <div className="card p-2 min-h-16 flex flex-wrap gap-2">{selectedValues.length ? selectedValues.map((v) => <button key={v} className="card px-2 py-1 text-xs" onClick={() => setSelectedValues((prev) => prev.filter((x) => x !== v))}>{v} ×</button>) : <span className="text-xs text-[var(--text-muted)]">No values selected yet.</span>}</div>
         </div>
+      </div>
+
+      <div className="grid md:grid-cols-3 gap-3 mt-3">
+        <label className="text-xs text-[var(--text-muted)]">Compare by (AND)
+          <select value={andCompareBy} onChange={(e) => setAndCompareBy(e.target.value as AndCompareBy)} className="card w-full px-2 py-1 mt-1">
+            <option value="none">None</option>
+            {compareBy !== 'country' && <option value="country">Country</option>}
+            {compareBy !== 'customer' && <option value="customer">Customer</option>}
+            {compareBy !== 'part_num' && <option value="part_num">Part Number</option>}
+            {compareBy !== 'prod_group' && <option value="prod_group">ProdGroups</option>}
+          </select>
+        </label>
+        {andCompareBy !== 'none' && <label className="text-xs text-[var(--text-muted)]">Lookup AND value
+          <input value={andLookup} onChange={(e) => setAndLookup(e.target.value)} className="card w-full px-2 py-1 mt-1" placeholder="Type to search" />
+        </label>}
+        {andCompareBy !== 'none' && <label className="text-xs text-[var(--text-muted)]">Select one {andCompareBy}
+          <select value={andValue} onChange={(e) => setAndValue(e.target.value)} className="card w-full px-2 py-1 mt-1">
+            <option value="">-- Select --</option>
+            {andOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </label>}
+      </div>
+
+      <div className="grid md:grid-cols-3 gap-3 mt-3">
+        <label className="text-xs text-[var(--text-muted)]">Period
+          <select value={periodMode} onChange={(e) => setPeriodMode(e.target.value as PeriodMode)} className="card w-full px-2 py-1 mt-1">
+            <option value="all">All</option><option value="after">After (month)</option><option value="before">Before (month)</option><option value="between">Between (months)</option>
+          </select>
+        </label>
+        {(periodMode === 'after' || periodMode === 'between') && <label className="text-xs text-[var(--text-muted)]">From YYYY-MM<input value={fromMonth} onChange={(e) => { const n = safeMonthInput(e.target.value); if (n !== null) setFromMonth(n); }} className="card w-full px-2 py-1 mt-1" /></label>}
+        {(periodMode === 'before' || periodMode === 'between') && <label className="text-xs text-[var(--text-muted)]">To YYYY-MM<input value={toMonth} onChange={(e) => { const n = safeMonthInput(e.target.value); if (n !== null) setToMonth(n); }} className="card w-full px-2 py-1 mt-1" /></label>}
       </div>
     </section>
 

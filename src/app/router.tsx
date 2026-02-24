@@ -24,7 +24,8 @@ export function AppRouter() {
     <Route path="/decline" element={<Navigate to="/labels" replace />} />
     <Route path="/database" element={<DatabasePage />} />
     <Route path="/pricing" element={<PricingPage />} />
-    <Route path="/pricing/comparator" element={<PricingComparatorPage />} />
+    <Route path="/pricing-comparator" element={<PricingComparatorPage />} />
+    <Route path="/pricing/comparator" element={<Navigate to="/pricing-comparator" replace />} />
     <Route path="*" element={<Navigate to={datasetLoaded ? '/explorer' : '/dataset'} replace />} />
   </Routes></AppShell>;
 }

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { KPIStatCard } from '@/components/ui/KPIStatCard';
@@ -27,7 +26,6 @@ type PricingRow = {
   margin_pct: number | null;
 };
 
-const COLORS = ['#0ea5e9', '#22c55e', '#f97316', '#a855f7', '#06b6d4'];
 const currency = (v: number) => `$${Math.round(v).toLocaleString()}`;
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 const isValidMonth = (m: string) => /^\d{4}-\d{2}$/.test(m);
@@ -70,7 +68,6 @@ export function PricingPage() {
   const [partSearch, setPartSearch] = useState('');
   const [groupSearch, setGroupSearch] = useState('');
   const [classSearch, setClassSearch] = useState('');
-  const [comparatorPartSearch, setComparatorPartSearch] = useState('');
 
   const [customerOptions, setCustomerOptions] = useState<Option[]>([]);
   const [countryOptions, setCountryOptions] = useState<Option[]>([]);
@@ -78,13 +75,10 @@ export function PricingPage() {
   const [partOptions, setPartOptions] = useState<Option[]>([]);
   const [groupOptions, setGroupOptions] = useState<Option[]>([]);
   const [classOptions, setClassOptions] = useState<Option[]>([]);
-  const [comparatorPartOptions, setComparatorPartOptions] = useState<Option[]>([]);
 
   const [kpis, setKpis] = useState<Record<string, number>>({});
   const [rows, setRows] = useState<PricingRow[]>([]);
   const [trend, setTrend] = useState<Record<string, unknown>[]>([]);
-  const [comparisonParts, setComparisonParts] = useState<string[]>((saved.comparisonParts as string[]) ?? []);
-  const [comparisonSeries, setComparisonSeries] = useState<Record<string, string | number>[]>([]);
   const [graphicsCollapsed, setGraphicsCollapsed] = useState(Boolean(saved.graphicsCollapsed ?? false));
   const [loadError, setLoadError] = useState('');
 
@@ -94,7 +88,6 @@ export function PricingPage() {
   useEffect(() => { getDistinctOptions('part_num', partSearch, 150).then((r) => setPartOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [partSearch]);
   useEffect(() => { getDistinctOptions('prod_group', groupSearch, 150).then((r) => setGroupOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [groupSearch]);
   useEffect(() => { getDistinctOptions('class_id', classSearch, 150).then((r) => setClassOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [classSearch]);
-  useEffect(() => { getDistinctOptions('part_num', comparatorPartSearch, 30).then((r) => setComparatorPartOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [comparatorPartSearch]);
 
   const filters = useMemo<Filters>(() => {
     const f: Filters = {
@@ -137,30 +130,6 @@ export function PricingPage() {
     return () => { active = false; };
   }, [filters]);
 
-  useEffect(() => {
-    let active = true;
-    if (!comparisonParts.length) {
-      setComparisonSeries([]);
-      return;
-    }
-    Promise.all(comparisonParts.map(async (part) => ({
-      part,
-      rows: await getRevenueCostProfitOverTime({ ...filters, parts: [part] }, true, 'monthly')
-    }))).then((allRows) => {
-      if (!active) return;
-      const byMonth = new Map<string, Record<string, string | number>>();
-      allRows.forEach(({ part, rows: partRows }) => {
-        (partRows as Record<string, unknown>[]).forEach((row) => {
-          const month = String(row.period ?? '');
-          if (!month) return;
-          if (!byMonth.has(month)) byMonth.set(month, { period: month });
-          byMonth.get(month)![part] = Number(row.margin_pct ?? 0);
-        });
-      });
-      setComparisonSeries([...byMonth.values()].sort((a, b) => String(a.period).localeCompare(String(b.period))));
-    });
-    return () => { active = false; };
-  }, [filters, comparisonParts]);
 
   const rowsSorted = useMemo(() => {
     const v = [...rows];
@@ -172,8 +141,8 @@ export function PricingPage() {
   const trendData = useMemo(() => trend.map((r) => ({ period: String(r.period ?? ''), revenue: Number(r.revenue ?? 0), cost: Number(r.cost ?? 0), profit: Number(r.profit ?? 0), margin_pct: Number(r.margin_pct ?? 0) })), [trend]);
 
   useEffect(() => {
-    setPageState('pricing', { periodMode, fromMonth, toMonth, searchText, rankBy, order, comparisonParts, graphicsCollapsed, selectedCustomers, selectedCountries, selectedTerritories, selectedParts, selectedProdGroups, selectedClasses });
-  }, [periodMode, fromMonth, toMonth, searchText, rankBy, order, comparisonParts, graphicsCollapsed, selectedCustomers, selectedCountries, selectedTerritories, selectedParts, selectedProdGroups, selectedClasses, setPageState]);
+    setPageState('pricing', { periodMode, fromMonth, toMonth, searchText, rankBy, order, graphicsCollapsed, selectedCustomers, selectedCountries, selectedTerritories, selectedParts, selectedProdGroups, selectedClasses });
+  }, [periodMode, fromMonth, toMonth, searchText, rankBy, order, graphicsCollapsed, selectedCustomers, selectedCountries, selectedTerritories, selectedParts, selectedProdGroups, selectedClasses, setPageState]);
 
   const chips = [
     ...selectedCustomers.map((v) => ({ k: 'customers' as const, v })), ...selectedCountries.map((v) => ({ k: 'countries' as const, v })), ...selectedTerritories.map((v) => ({ k: 'territories' as const, v })),
@@ -188,9 +157,6 @@ export function PricingPage() {
     if (kind === 'classes') setSelectedClasses((x) => x.filter((v) => v !== value));
   };
 
-  const addComparatorPart = (part: string) => {
-    setComparisonParts((prev) => prev.includes(part) || prev.length >= 5 ? prev : [...prev, part]);
-  };
 
   return <div>
     <PageHeader title="Pricing" subtitle={datasetMeta ? `${datasetMeta.dateRange} · ${datasetMeta.rowCount.toLocaleString()} rows` : 'Upload dataset to start'} />
@@ -231,24 +197,6 @@ export function PricingPage() {
         <section className="card p-3 h-[22rem]"><h3 className="font-semibold mb-2">Cost vs. Time</h3><ResponsiveContainer><LineChart data={trendData}><XAxis dataKey="period"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} /><Line type="monotone" dataKey="cost" stroke="#f59e0b" /></LineChart></ResponsiveContainer></section>
         <section className="card p-3 h-[22rem]"><h3 className="font-semibold mb-2">Profit vs. Time</h3><ResponsiveContainer><LineChart data={trendData}><XAxis dataKey="period"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} /><Line type="monotone" dataKey="profit" stroke="#22c55e" /></LineChart></ResponsiveContainer></section>
         <section className="card p-3 h-[22rem]"><h3 className="font-semibold mb-2">Margin % vs. Time</h3><ResponsiveContainer><LineChart data={trendData}><XAxis dataKey="period"/><YAxis/><Tooltip formatter={(v) => pct(Number(v))} /><Line type="monotone" dataKey="margin_pct" stroke="#a855f7" /></LineChart></ResponsiveContainer></section>
-        <section className="card p-3 h-[28rem] xl:col-span-2">
-          <div className="flex items-center justify-between mb-2"><h3 className="font-semibold">Profit % Comparison</h3><Link to="/pricing/comparator" className="card px-3 py-1 text-xs">Expand Comparator</Link></div>
-          <div className="grid lg:grid-cols-2 gap-3 mb-3">
-            <div>
-              <label className="text-xs text-[var(--text-muted)]">Lookup parts for comparator (max 5)
-                <input value={comparatorPartSearch} onChange={(e) => setComparatorPartSearch(e.target.value)} placeholder="Type part number" className="card w-full px-2 py-1 mt-1" />
-              </label>
-              <div className="card mt-2 p-2 h-28 overflow-auto text-xs">
-                {comparatorPartOptions.map((o) => <button key={o.value} className="w-full text-left px-2 py-1 hover:bg-[var(--surface)] rounded" onClick={() => addComparatorPart(o.value)}>{o.value}</button>)}
-              </div>
-            </div>
-            <div>
-              <div className="text-xs text-[var(--text-muted)] mb-1">Comparator filters applied</div>
-              <div className="card p-2 min-h-20 flex flex-wrap gap-2 content-start">{comparisonParts.length ? comparisonParts.map((part) => <button key={part} className="card px-2 py-1 text-xs" onClick={() => setComparisonParts((prev) => prev.filter((v) => v !== part))}>part:{part} ×</button>) : <span className="text-xs text-[var(--text-muted)]">No parts selected yet.</span>}</div>
-            </div>
-          </div>
-          <div className="h-[15rem]"><ResponsiveContainer><LineChart data={comparisonSeries}><XAxis dataKey="period"/><YAxis/><Tooltip shared formatter={(v) => pct(Number(v))} />{comparisonParts.map((part, i) => <Line key={part} type="monotone" dataKey={part} stroke={COLORS[i % COLORS.length]} dot={false} connectNulls />)}</LineChart></ResponsiveContainer></div>
-        </section>
       </div>}
     </section>
 
