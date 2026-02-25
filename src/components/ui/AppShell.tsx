@@ -9,8 +9,8 @@ import { useAppStore } from '@/state/store';
 const nav = ['/dataset', '/explorer', '/database', '/group-by', '/pricing', '/pricing-comparator', '/potential-tables', '/top-items', '/labels'];
 
 const navLabel: Record<'fr' | 'en', Record<string, string>> = {
-  en: { '/dataset': 'Dataset Manager', '/explorer': 'Dashboard', '/group-by': 'Group By', '/database': 'Parts Database', '/pricing': 'Pricing', '/pricing-comparator': 'Pricing Comparator', '/potential-tables': 'Potential', '/top-items': 'Top Items', '/labels': 'Labels' },
-  fr: { '/dataset': 'Gestion Données', '/explorer': 'Tableau de bord', '/group-by': 'Groupes', '/database': 'Base Articles', '/pricing': 'Prix', '/pricing-comparator': 'Comparateur Prix', '/potential-tables': 'Potentiel', '/top-items': 'Top Articles', '/labels': 'Étiquettes' }
+  en: { '/dataset': 'Dataset Manager', '/explorer': 'Dashboard', '/group-by': 'Group By', '/database': 'Database', '/pricing': 'Pricing', '/pricing-comparator': 'Comparator', '/potential-tables': 'Potential', '/top-items': 'Top Items', '/labels': 'Labels' },
+  fr: { '/dataset': 'Gestion Données', '/explorer': 'Tableau de bord', '/group-by': 'Groupes', '/database': 'Base de données', '/pricing': 'Prix', '/pricing-comparator': 'Comparateur', '/potential-tables': 'Potentiel', '/top-items': 'Top Articles', '/labels': 'Étiquettes' }
 };
 
 export function AppShell({ children }: { children: ReactNode }) {
