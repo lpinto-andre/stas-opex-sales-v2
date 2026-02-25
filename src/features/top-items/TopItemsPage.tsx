@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
-import { Bar, BarChart, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, Line, LineChart, PolarAngleAxis, PolarGrid, Radar, RadarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { getCustomerOptions, getDistinctOptions, getOrderTotalsForParts, getOrdersByFYAndPartForParts, getOrdersByFYForParts, getPartYearMetrics, getPartsOrdersByFY, getPartsPriorityRows, getPartsRevenueByFY, getRevenueByFYAndPartForParts, getRevenueByFYForParts, getRevenueCostProfitOverTime, getRevenueTotalsForParts, type Filters } from '@/data/queries';
 import { useAppStore } from '@/state/store';
@@ -71,6 +71,7 @@ function MultiPick({ label, options, values, onChange }: { label: string; option
 
 export function TopItemsPage() {
   const saved = useAppStore((s) => (s.pageState['top-items'] as Record<string, unknown>) ?? {});
+  const uiLang = useAppStore((s) => s.uiLang);
   const setPageState = useAppStore((s) => s.setPageState);
   const setTopItemsSelection = useAppStore((s) => s.setTopItemsSelection);
   const [topN, setTopN] = useState(Number(saved.topN ?? 50));
@@ -371,7 +372,7 @@ export function TopItemsPage() {
         <input type="text" value={current.toMonth} onChange={(e) => { const n = safeMonthInput(e.target.value); if (n !== null) setTopFilter(key, { toMonth: n }); }} className="card w-full px-2 py-1 mt-1" />
       </label>
       <div className="text-xs text-[var(--text-muted)]">
-        <div className="mb-1">Top Items (from model)</div>
+        <div className="mb-1 flex items-center justify-between"><span>Top Items (from model)</span><button className="card px-2 py-0.5 text-[10px]" onClick={() => setTopFilter(key, { parts: [...limitedTopParts] })}>{uiLang === 'fr' ? 'Tout sélectionner' : 'Select all'}</button></div>
         <div className="card h-24 overflow-auto p-2">
           <div className="grid grid-cols-2 gap-x-3 gap-y-1">{limitedTopParts.map((p) => <label key={`${key}-${p}`} className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={current.parts.includes(p)} onChange={() => setTopFilter(key, { parts: current.parts.includes(p) ? current.parts.filter((x) => x !== p) : [...current.parts, p] })} /><span className="truncate">{p}</span></label>)}</div>
         </div>
@@ -406,16 +407,31 @@ export function TopItemsPage() {
       {chips.length > 0 && <div className="flex flex-wrap gap-2 mt-3">{chips.map((c) => <button key={`${c.k}:${c.v}`} className="card px-2 py-1 text-xs" onClick={() => removeValue(c.k, c.v)}>{c.k}:{c.v} ×</button>)}</div>}
     </section>
 
-    <section className="card p-3 mb-3">
-      <h3 className="font-semibold mb-2">Weights (type values)</h3>
-      <p className="text-xs text-[var(--text-muted)] mb-2">Values can be any positive numbers. We normalize internally so the total influence is balanced.</p>
-      <p className="text-xs text-[var(--text-muted)] mb-2">Recent FY window (k) = number of most recent fiscal years used for trend averages. Past FY window (m) = number of fiscal years immediately before that recent block.</p>
-      <div className="grid md:grid-cols-3 gap-2">
-        {(Object.keys(weights) as (keyof Weights)[]).map((key) => <label key={key} className="text-xs text-[var(--text-muted)]"><span className="text-white font-semibold">{String(key).charAt(0).toUpperCase() + String(key).slice(1)}</span>
-          <input type="number" min={0} max={100} step={1} value={weights[key]} onChange={(e) => setWeights((w) => ({ ...w, [key]: Math.max(0, Math.min(100, Number(e.target.value || 0))) }))} className="card w-full px-2 py-1 mt-1" />
-          <span className="block mt-1">{weightDesc[key]}</span>
-          <span className="block mt-1 text-[10px]">Maximum: 100</span>
-        </label>)}
+    <section className="grid lg:grid-cols-2 gap-3 mb-3">
+      <div className="card p-3">
+        <h3 className="font-semibold mb-2">{uiLang === 'fr' ? 'Pondérations (saisie)' : 'Weights (type values)'}</h3>
+        <p className="text-xs text-[var(--text-muted)] mb-2">{uiLang === 'fr' ? 'Les valeurs peuvent être positives, la normalisation est appliquée automatiquement.' : 'Values can be any positive numbers. We normalize internally so the total influence is balanced.'}</p>
+        <p className="text-xs text-[var(--text-muted)] mb-2">{uiLang === 'fr' ? 'Fenêtre FY récente (k) et passée (m) pilotent le score de tendance.' : 'Recent FY window (k) = number of most recent fiscal years used for trend averages. Past FY window (m) = number of fiscal years immediately before that recent block.'}</p>
+        <div className="grid md:grid-cols-2 gap-2">
+          {(Object.keys(weights) as (keyof Weights)[]).map((key) => <label key={key} className="text-xs text-[var(--text-muted)]"><span className="text-[var(--text)] font-semibold">{String(key).charAt(0).toUpperCase() + String(key).slice(1)}</span>
+            <input type="number" min={0} max={100} step={1} value={weights[key]} onChange={(e) => setWeights((w) => ({ ...w, [key]: Math.max(0, Math.min(100, Number(e.target.value || 0))) }))} className="card w-full px-2 py-1 mt-1" />
+            <span className="block mt-1">{weightDesc[key]}</span>
+            <span className="block mt-1 text-[10px]">{uiLang === 'fr' ? 'Maximum : 100' : 'Maximum: 100'}</span>
+          </label>)}
+        </div>
+      </div>
+      <div className="card p-3 min-h-[23rem]">
+        <h3 className="font-semibold mb-2">{uiLang === 'fr' ? 'Visualisation radar des pondérations' : 'Weights radar visualization'}</h3>
+        <div className="h-[19rem]">
+          <ResponsiveContainer>
+            <RadarChart data={(Object.keys(weights) as (keyof Weights)[]).map((k) => ({ metric: String(k), value: Number(weights[k]) }))}>
+              <PolarGrid />
+              <PolarAngleAxis dataKey="metric" />
+              <Radar dataKey="value" stroke="#22c55e" fill="#22c55e" fillOpacity={0.35} />
+              <Tooltip />
+            </RadarChart>
+          </ResponsiveContainer>
+        </div>
       </div>
     </section>
 
