@@ -9,8 +9,8 @@ import { useAppStore } from '@/state/store';
 const nav = ['/dataset', '/explorer', '/database', '/group-by', '/pricing', '/pricing-comparator', '/potential-tables', '/top-items', '/labels'];
 
 const navLabel: Record<'fr' | 'en', Record<string, string>> = {
-  en: { '/dataset': 'Dataset Manager', '/explorer': 'Dashboard', '/group-by': 'Group By', '/database': 'Parts Database', '/pricing': 'Pricing', '/pricing-comparator': 'Pricing Comparator', '/potential-tables': 'Potential Tables', '/top-items': 'Top Items', '/labels': 'Labels' },
-  fr: { '/dataset': 'Gestion Données', '/explorer': 'Tableau de bord', '/group-by': 'Groupes', '/database': 'Base Articles', '/pricing': 'Prix', '/pricing-comparator': 'Comparateur Prix', '/potential-tables': 'Tables Potentiel', '/top-items': 'Top Articles', '/labels': 'Étiquettes' }
+  en: { '/dataset': 'Dataset Manager', '/explorer': 'Dashboard', '/group-by': 'Group By', '/database': 'Parts Database', '/pricing': 'Pricing', '/pricing-comparator': 'Pricing Comparator', '/potential-tables': 'Potential', '/top-items': 'Top Items', '/labels': 'Labels' },
+  fr: { '/dataset': 'Gestion Données', '/explorer': 'Tableau de bord', '/group-by': 'Groupes', '/database': 'Base Articles', '/pricing': 'Prix', '/pricing-comparator': 'Comparateur Prix', '/potential-tables': 'Potentiel', '/top-items': 'Top Articles', '/labels': 'Étiquettes' }
 };
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -65,16 +65,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     <header className="border-b border-[var(--border)] bg-[var(--surface)]/90 px-6 py-4 flex items-center justify-between gap-3">
       <Link to="/" className="font-semibold">{labels.appName}</Link>
       <div className="flex items-center gap-2">
-        <button
-          className="card px-3 py-1 text-xs"
-          aria-label={uiLang === 'fr' ? 'Basculer le thème' : 'Toggle theme'}
-          onClick={() => setUiTheme(uiTheme === 'dark' ? 'light' : 'dark')}
-        >{uiTheme === 'dark' ? (uiLang === 'fr' ? 'Thème clair' : 'Day theme') : (uiLang === 'fr' ? 'Thème sombre' : 'Dark theme')}</button>
-        <button
-          className="card px-3 py-1 text-xs"
-          aria-label={uiLang === 'fr' ? 'Basculer la langue' : 'Toggle language'}
-          onClick={() => setUiLang(uiLang === 'fr' ? 'en' : 'fr')}
-        >{uiLang === 'fr' ? 'English' : 'Français'}</button>
+        <div className="card p-1 flex items-center gap-1" role="group" aria-label={uiLang === 'fr' ? 'Sélection du thème' : 'Theme selection'}>
+          <button className={`px-2 py-1 text-xs rounded ${uiTheme === 'light' ? 'bg-[var(--teal)] text-black' : 'text-[var(--text-muted)]'}`} onClick={() => setUiTheme('light')}>{uiLang === 'fr' ? 'Clair' : 'Light'}</button>
+          <button className={`px-2 py-1 text-xs rounded ${uiTheme === 'dark' ? 'bg-[var(--teal)] text-black' : 'text-[var(--text-muted)]'}`} onClick={() => setUiTheme('dark')}>{uiLang === 'fr' ? 'Sombre' : 'Dark'}</button>
+        </div>
+        <div className="card p-1 flex items-center gap-1" role="group" aria-label={uiLang === 'fr' ? 'Sélection de la langue' : 'Language selection'}>
+          <button className={`px-2 py-1 text-xs rounded ${uiLang === 'en' ? 'bg-[var(--teal)] text-black' : 'text-[var(--text-muted)]'}`} onClick={() => setUiLang('en')}>EN</button>
+          <button className={`px-2 py-1 text-xs rounded ${uiLang === 'fr' ? 'bg-[var(--teal)] text-black' : 'text-[var(--text-muted)]'}`} onClick={() => setUiLang('fr')}>FR</button>
+        </div>
       </div>
       <nav className="flex gap-2 flex-wrap justify-end">{nav.map((n) => <NavLink key={n} to={n} className={({ isActive }) => `px-3 py-1 rounded-full border text-sm ${isActive ? 'border-[var(--teal)] text-[var(--teal)] shadow-[0_0_0_1px_rgba(27,199,179,0.2)]' : 'border-[var(--border)] text-[var(--text-muted)]'}`}>{navLabel[uiLang][n] ?? n.slice(1)}</NavLink>)}</nav>
     </header>
