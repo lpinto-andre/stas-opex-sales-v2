@@ -24,6 +24,7 @@ import {
   type Filters
 } from '@/data/queries';
 import { useAppStore } from '@/state/store';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 
 type Option = { value: string; label: string };
 type PeriodMode = 'all' | 'after' | 'before' | 'between';
@@ -84,6 +85,12 @@ export function ExplorerPage() {
   const [partSearch, setPartSearch] = useState('');
   const [groupSearch, setGroupSearch] = useState('');
 
+  const customerSearchQ = useDebouncedValue(customerSearch, 250);
+  const countrySearchQ = useDebouncedValue(countrySearch, 250);
+  const territorySearchQ = useDebouncedValue(territorySearch, 250);
+  const partSearchQ = useDebouncedValue(partSearch, 250);
+  const groupSearchQ = useDebouncedValue(groupSearch, 250);
+
   const [selectedCustomers, setSelectedCustomers] = useState<string[]>((saved.selectedCustomers as string[]) ?? []);
   const [selectedCountries, setSelectedCountries] = useState<string[]>((saved.selectedCountries as string[]) ?? []);
   const [selectedTerritories, setSelectedTerritories] = useState<string[]>((saved.selectedTerritories as string[]) ?? []);
@@ -114,11 +121,11 @@ export function ExplorerPage() {
   const [topRevByFyPart, setTopRevByFyPart] = useState<Record<string, unknown>[]>([]);
   const [topOrdByFyPart, setTopOrdByFyPart] = useState<Record<string, unknown>[]>([]);
 
-  useEffect(() => { getCustomerOptions(customerSearch, 150).then((r) => setCustomerOptions(r.map((x) => ({ value: x.value, label: x.label })))); }, [customerSearch]);
-  useEffect(() => { getDistinctOptions('country', countrySearch, 150).then((r) => setCountryOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [countrySearch]);
-  useEffect(() => { getDistinctOptions('territory', territorySearch, 150).then((r) => setTerritoryOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [territorySearch]);
-  useEffect(() => { getDistinctOptions('part_num', partSearch, 150).then((r) => setPartOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [partSearch]);
-  useEffect(() => { getDistinctOptions('prod_group', groupSearch, 150).then((r) => setGroupOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [groupSearch]);
+  useEffect(() => { getCustomerOptions(customerSearchQ, 150).then((r) => setCustomerOptions(r.map((x) => ({ value: x.value, label: x.label })))); }, [customerSearchQ]);
+  useEffect(() => { getDistinctOptions('country', countrySearchQ, 150).then((r) => setCountryOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [countrySearchQ]);
+  useEffect(() => { getDistinctOptions('territory', territorySearchQ, 150).then((r) => setTerritoryOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [territorySearchQ]);
+  useEffect(() => { getDistinctOptions('part_num', partSearchQ, 150).then((r) => setPartOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [partSearchQ]);
+  useEffect(() => { getDistinctOptions('prod_group', groupSearchQ, 150).then((r) => setGroupOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [groupSearchQ]);
 
   const filters = useMemo<Filters>(() => {
     const f: Filters = {

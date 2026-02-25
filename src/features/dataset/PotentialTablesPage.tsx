@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { AdvancedFiltersPanel } from '@/components/ui/AdvancedFiltersPanel';
 import { getCustomerOptions } from '@/data/queries';
 import { useAppStore } from '@/state/store';
+import { uiText } from '@/i18n/ui';
 
 type Option = { value: string; label: string };
 
@@ -31,6 +33,8 @@ export function PotentialTablesPage() {
   const [showSummary, setShowSummary] = useState(false);
   const [showConsumables, setShowConsumables] = useState(false);
   const [showEquipment, setShowEquipment] = useState(true);
+
+  const common = uiText[uiLang];
 
   const t = uiLang === 'fr' ? {
     title: 'Tables de Potentiel', subtitle: 'Filtrer par sociétés mappées. Les colonnes de données restent inchangées.',
@@ -110,12 +114,11 @@ export function PotentialTablesPage() {
   return <div>
     <PageHeader title={t.title} subtitle={t.subtitle} />
 
-    <section className="card p-3 mb-4">
-      <h3 className="font-semibold mb-2">{t.filters}</h3>
+    <AdvancedFiltersPanel title={common.filters} tip={common.filtersTip}>
       <div className="grid lg:grid-cols-2 gap-3">
-        <div className="space-y-2"><input value={customerSearch} onChange={(e) => setCustomerSearch(e.target.value)} placeholder={t.searchCompany} className="card w-full px-2 py-1 text-xs" /><MultiPick label={t.companies} options={customerOptions} values={selectedCustomers} onChange={setSelectedCustomers} /></div>
+        <div className="space-y-2"><input value={customerSearch} onChange={(e) => setCustomerSearch(e.target.value)} placeholder={common.searchCustomer} className="card w-full px-2 py-1 text-xs" /><MultiPick label={t.companies} options={customerOptions} values={selectedCustomers} onChange={setSelectedCustomers} /></div>
       </div>
-    </section>
+    </AdvancedFiltersPanel>
 
     <section className="card overflow-auto mb-4">
       <div className="flex items-center justify-between p-3 border-b border-[var(--border)]"><h3 className="font-semibold">{t.equipment}</h3><button className="card px-3 py-1 text-xs" onClick={() => setShowEquipment((x) => !x)}>{showEquipment ? t.hide : t.show}</button></div>

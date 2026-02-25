@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { KPIStatCard } from '@/components/ui/KPIStatCard';
 import { getCustomerOptions, getDetailRows, getDistinctOptions, getPricingKPIs, getRevenueCostProfitOverTime, type Filters } from '@/data/queries';
 import { useAppStore } from '@/state/store';
@@ -69,6 +70,13 @@ export function PricingPage() {
   const [groupSearch, setGroupSearch] = useState('');
   const [classSearch, setClassSearch] = useState('');
 
+  const customerSearchQ = useDebouncedValue(customerSearch, 250);
+  const countrySearchQ = useDebouncedValue(countrySearch, 250);
+  const territorySearchQ = useDebouncedValue(territorySearch, 250);
+  const partSearchQ = useDebouncedValue(partSearch, 250);
+  const groupSearchQ = useDebouncedValue(groupSearch, 250);
+  const classSearchQ = useDebouncedValue(classSearch, 250);
+
   const [customerOptions, setCustomerOptions] = useState<Option[]>([]);
   const [countryOptions, setCountryOptions] = useState<Option[]>([]);
   const [territoryOptions, setTerritoryOptions] = useState<Option[]>([]);
@@ -82,12 +90,12 @@ export function PricingPage() {
   const [graphicsCollapsed, setGraphicsCollapsed] = useState(Boolean(saved.graphicsCollapsed ?? false));
   const [loadError, setLoadError] = useState('');
 
-  useEffect(() => { getCustomerOptions(customerSearch, 150).then((r) => setCustomerOptions(r.map((x) => ({ value: x.value, label: x.label })))); }, [customerSearch]);
-  useEffect(() => { getDistinctOptions('country', countrySearch, 150).then((r) => setCountryOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [countrySearch]);
-  useEffect(() => { getDistinctOptions('territory', territorySearch, 150).then((r) => setTerritoryOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [territorySearch]);
-  useEffect(() => { getDistinctOptions('part_num', partSearch, 150).then((r) => setPartOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [partSearch]);
-  useEffect(() => { getDistinctOptions('prod_group', groupSearch, 150).then((r) => setGroupOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [groupSearch]);
-  useEffect(() => { getDistinctOptions('class_id', classSearch, 150).then((r) => setClassOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [classSearch]);
+  useEffect(() => { getCustomerOptions(customerSearchQ, 150).then((r) => setCustomerOptions(r.map((x) => ({ value: x.value, label: x.label })))); }, [customerSearchQ]);
+  useEffect(() => { getDistinctOptions('country', countrySearchQ, 150).then((r) => setCountryOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [countrySearchQ]);
+  useEffect(() => { getDistinctOptions('territory', territorySearchQ, 150).then((r) => setTerritoryOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [territorySearchQ]);
+  useEffect(() => { getDistinctOptions('part_num', partSearchQ, 150).then((r) => setPartOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [partSearchQ]);
+  useEffect(() => { getDistinctOptions('prod_group', groupSearchQ, 150).then((r) => setGroupOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [groupSearchQ]);
+  useEffect(() => { getDistinctOptions('class_id', classSearchQ, 150).then((r) => setClassOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [classSearchQ]);
 
   const filters = useMemo<Filters>(() => {
     const f: Filters = {

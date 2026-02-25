@@ -30,6 +30,8 @@ type AppState = {
   setUiTheme: (theme: 'dark' | 'light') => void;
   uiLang: 'fr' | 'en';
   setUiLang: (lang: 'fr' | 'en') => void;
+  uiCurrency: 'USD' | 'CAD';
+  setUiCurrency: (currency: 'USD' | 'CAD') => void;
 };
 
 const getSavedUiTheme = (): 'dark' | 'light' => {
@@ -42,6 +44,12 @@ const getSavedUiLang = (): 'fr' | 'en' => {
   if (typeof window === 'undefined') return 'fr';
   const saved = window.localStorage.getItem('uiLang');
   return saved === 'en' ? 'en' : 'fr';
+};
+
+const getSavedUiCurrency = (): 'USD' | 'CAD' => {
+  if (typeof window === 'undefined') return 'USD';
+  const saved = window.localStorage.getItem('uiCurrency');
+  return saved === 'CAD' ? 'CAD' : 'USD';
 };
 
 export const useAppStore = create<AppState>((set) => ({
@@ -65,5 +73,10 @@ export const useAppStore = create<AppState>((set) => ({
   setUiLang: (lang) => set(() => {
     if (typeof window !== 'undefined') window.localStorage.setItem('uiLang', lang);
     return { uiLang: lang };
+  }),
+  uiCurrency: getSavedUiCurrency(),
+  setUiCurrency: (currency) => set(() => {
+    if (typeof window !== 'undefined') window.localStorage.setItem('uiCurrency', currency);
+    return { uiCurrency: currency };
   })
 }));
