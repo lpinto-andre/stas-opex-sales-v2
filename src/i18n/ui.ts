@@ -4,6 +4,7 @@ export const uiText = {
   en: {
     filters: 'Filters',
     filtersTip: 'Tip: tick multiple values in each filter to combine selections freely.',
+    resetFilters: 'Reset filters',
     searchCustomer: 'Search customer',
     searchCountry: 'Search country',
     searchTerritory: 'Search territory',
@@ -15,6 +16,7 @@ export const uiText = {
   fr: {
     filters: 'Filtres',
     filtersTip: 'Astuce : cochez plusieurs valeurs dans chaque filtre pour combiner les sélections.',
+    resetFilters: 'Réinitialiser les filtres',
     searchCustomer: 'Rechercher client',
     searchCountry: 'Rechercher pays',
     searchTerritory: 'Rechercher territoire',

@@ -1,12 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { ExpandableText } from '@/components/ui/ExpandableText';
+import { SearchMultiPickFilter } from '@/components/ui/FilterFields';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { SavedViewsPanel } from '@/components/ui/SavedViewsPanel';
+import { TablePager } from '@/components/ui/TablePager';
+import { cartesianAxisProps, chartTooltipProps } from '@/components/ui/chartStyles';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { useCustomerOptions, useDistinctFilterOptions } from '@/hooks/useFilterOptions';
+import { usePaginatedRows } from '@/hooks/usePaginatedRows';
+import { useSavedViews } from '@/hooks/useSavedViews';
 import { KPIStatCard } from '@/components/ui/KPIStatCard';
-import { getCustomerOptions, getDetailRows, getDistinctOptions, getPricingKPIs, getRevenueCostProfitOverTime, type Filters } from '@/data/queries';
+import { getDetailRows, getPricingKPIs, getRevenueCostProfitOverTime, type Filters } from '@/data/queries';
 import { useAppStore } from '@/state/store';
+import { formatCurrency as currency, formatInteger, formatPercent as pct } from '@/utils/formatters';
+import { monthEnd, monthStart, safeMonthInput } from '@/utils/monthRange';
 
-type Option = { value: string; label: string };
 type PeriodMode = 'all' | 'after' | 'before' | 'between';
 type RankBy = 'price' | 'cost' | 'profit' | 'profit_pct';
 type SortDir = 'desc' | 'asc';
@@ -21,28 +30,24 @@ type PricingRow = {
   class_id: string;
   part_num: string;
   line_desc_short: string;
+  line_desc_full: string;
   amount: number;
   cost: number | null;
   profit: number | null;
   margin_pct: number | null;
 };
-
-const currency = (v: number) => `$${Math.round(v).toLocaleString()}`;
-const pct = (v: number) => `${Math.round(v * 100)}%`;
-const isValidMonth = (m: string) => /^\d{4}-\d{2}$/.test(m);
-const safeMonthInput = (v: string) => (/^\d{0,4}(?:-\d{0,2})?$/.test(v) ? v : null);
-const monthStart = (m: string) => (isValidMonth(m) ? `${m}-01` : '');
-const monthEnd = (m: string) => {
-  if (!isValidMonth(m)) return '';
-  const [y, mo] = m.split('-').map(Number);
-  const d = new Date(y, mo, 0);
-  return `${y}-${String(mo).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+type PricingSavedView = {
+  periodMode: PeriodMode;
+  fromMonth: string;
+  toMonth: string;
+  searchText: string;
+  selectedCustomers: string[];
+  selectedCountries: string[];
+  selectedTerritories: string[];
+  selectedParts: string[];
+  selectedProdGroups: string[];
+  selectedClasses: string[];
 };
-
-function MultiPick({ label, options, values, onChange }: { label: string; options: Option[]; values: string[]; onChange: (next: string[]) => void }) {
-  const toggle = (value: string) => onChange(values.includes(value) ? values.filter((v) => v !== value) : [...values, value]);
-  return <div className="text-xs text-[var(--text-muted)]"><div className="mb-1">{label}</div><div className="card h-28 overflow-auto p-2 space-y-1">{options.map((o) => <label key={o.value} className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={values.includes(o.value)} onChange={() => toggle(o.value)} /><span className="text-xs">{o.label}</span></label>)}</div></div>;
-}
 
 export function PricingPage() {
   const datasetMeta = useAppStore((s) => s.datasetMeta);
@@ -77,25 +82,18 @@ export function PricingPage() {
   const groupSearchQ = useDebouncedValue(groupSearch, 250);
   const classSearchQ = useDebouncedValue(classSearch, 250);
 
-  const [customerOptions, setCustomerOptions] = useState<Option[]>([]);
-  const [countryOptions, setCountryOptions] = useState<Option[]>([]);
-  const [territoryOptions, setTerritoryOptions] = useState<Option[]>([]);
-  const [partOptions, setPartOptions] = useState<Option[]>([]);
-  const [groupOptions, setGroupOptions] = useState<Option[]>([]);
-  const [classOptions, setClassOptions] = useState<Option[]>([]);
-
   const [kpis, setKpis] = useState<Record<string, number>>({});
   const [rows, setRows] = useState<PricingRow[]>([]);
   const [trend, setTrend] = useState<Record<string, unknown>[]>([]);
   const [graphicsCollapsed, setGraphicsCollapsed] = useState(Boolean(saved.graphicsCollapsed ?? false));
   const [loadError, setLoadError] = useState('');
 
-  useEffect(() => { getCustomerOptions(customerSearchQ, 150).then((r) => setCustomerOptions(r.map((x) => ({ value: x.value, label: x.label })))); }, [customerSearchQ]);
-  useEffect(() => { getDistinctOptions('country', countrySearchQ, 150).then((r) => setCountryOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [countrySearchQ]);
-  useEffect(() => { getDistinctOptions('territory', territorySearchQ, 150).then((r) => setTerritoryOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [territorySearchQ]);
-  useEffect(() => { getDistinctOptions('part_num', partSearchQ, 150).then((r) => setPartOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [partSearchQ]);
-  useEffect(() => { getDistinctOptions('prod_group', groupSearchQ, 150).then((r) => setGroupOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [groupSearchQ]);
-  useEffect(() => { getDistinctOptions('class_id', classSearchQ, 150).then((r) => setClassOptions(r.map((x) => ({ value: x.value, label: x.value })))); }, [classSearchQ]);
+  const customerOptions = useCustomerOptions(customerSearchQ, 150);
+  const countryOptions = useDistinctFilterOptions('country', countrySearchQ, 150);
+  const territoryOptions = useDistinctFilterOptions('territory', territorySearchQ, 150);
+  const partOptions = useDistinctFilterOptions('part_num', partSearchQ, 150);
+  const groupOptions = useDistinctFilterOptions('prod_group', groupSearchQ, 150);
+  const classOptions = useDistinctFilterOptions('class_id', classSearchQ, 150);
 
   const filters = useMemo<Filters>(() => {
     const f: Filters = {
@@ -112,6 +110,31 @@ export function PricingPage() {
     if (periodMode === 'between') { f.startDate = monthStart(fromMonth) || undefined; f.endDate = monthEnd(toMonth) || undefined; }
     return f;
   }, [selectedCustomers, selectedCountries, selectedTerritories, selectedParts, selectedProdGroups, selectedClasses, searchText, periodMode, fromMonth, toMonth]);
+  const currentSavedView = useMemo<PricingSavedView>(() => ({
+    periodMode,
+    fromMonth,
+    toMonth,
+    searchText,
+    selectedCustomers,
+    selectedCountries,
+    selectedTerritories,
+    selectedParts,
+    selectedProdGroups,
+    selectedClasses
+  }), [periodMode, fromMonth, toMonth, searchText, selectedCustomers, selectedCountries, selectedTerritories, selectedParts, selectedProdGroups, selectedClasses]);
+  const {
+    activeViewName,
+    collapsed: savedViewsCollapsed,
+    deleteSavedView,
+    saveCurrentView,
+    saveName,
+    savedViews,
+    setCollapsed: setSavedViewsCollapsed,
+    setSaveName
+  } = useSavedViews<PricingSavedView>({
+    storageKey: 'saved-views-pricing',
+    currentSnapshot: currentSavedView
+  });
 
   useEffect(() => {
     let active = true;
@@ -127,7 +150,7 @@ export function PricingPage() {
       if (rowsRes.status === 'fulfilled') {
         setRows((rowsRes.value as Record<string, unknown>[]).map((r) => ({
           invoice_month: String(r.invoice_date ?? '').slice(0, 7), invoice_num: String(r.invoice_num ?? ''), cust_id: String(r.cust_id ?? ''), cust_name: String(r.cust_name ?? ''),
-          country: String(r.country ?? ''), territory: String(r.territory ?? ''), class_id: String(r.class_id ?? ''), part_num: String(r.part_num ?? ''), line_desc_short: String(r.line_desc ?? '').slice(0, 25),
+          country: String(r.country ?? ''), territory: String(r.territory ?? ''), class_id: String(r.class_id ?? ''), part_num: String(r.part_num ?? ''), line_desc_short: String(r.line_desc ?? '').slice(0, 25), line_desc_full: String(r.line_desc ?? ''),
           amount: Number(r.amount ?? 0), cost: r.cost == null ? null : Number(r.cost), profit: r.profit == null ? null : Number(r.profit), margin_pct: r.margin_pct == null ? null : Number(r.margin_pct)
         })));
       } else setRows([]);
@@ -145,6 +168,7 @@ export function PricingPage() {
     v.sort((a, b) => order === 'desc' ? value(b) - value(a) : value(a) - value(b));
     return v;
   }, [rows, rankBy, order]);
+  const pricingTable = usePaginatedRows(rowsSorted, 100);
 
   const trendData = useMemo(() => trend.map((r) => ({ period: String(r.period ?? ''), revenue: Number(r.revenue ?? 0), cost: Number(r.cost ?? 0), profit: Number(r.profit ?? 0), margin_pct: Number(r.margin_pct ?? 0) })), [trend]);
 
@@ -165,22 +189,99 @@ export function PricingPage() {
     if (kind === 'classes') setSelectedClasses((x) => x.filter((v) => v !== value));
   };
 
+  const resetFilters = () => {
+    setCustomerSearch('');
+    setCountrySearch('');
+    setTerritorySearch('');
+    setPartSearch('');
+    setGroupSearch('');
+    setClassSearch('');
+    setSelectedCustomers([]);
+    setSelectedCountries([]);
+    setSelectedTerritories([]);
+    setSelectedParts([]);
+    setSelectedProdGroups([]);
+    setSelectedClasses([]);
+    setSearchText('');
+    setPeriodMode('all');
+    setFromMonth('');
+    setToMonth('');
+  };
+  const applySavedView = (view: PricingSavedView) => {
+    setPeriodMode(view.periodMode);
+    setFromMonth(view.fromMonth);
+    setToMonth(view.toMonth);
+    setSearchText(view.searchText);
+    setSelectedCustomers(view.selectedCustomers);
+    setSelectedCountries(view.selectedCountries);
+    setSelectedTerritories(view.selectedTerritories);
+    setSelectedParts(view.selectedParts);
+    setSelectedProdGroups(view.selectedProdGroups);
+    setSelectedClasses(view.selectedClasses);
+  };
+  const describeSavedView = (view: PricingSavedView) => {
+    const parts = [
+      view.periodMode === 'all'
+        ? 'All period'
+        : view.periodMode === 'after'
+          ? `After ${view.fromMonth || '...'}`
+          : view.periodMode === 'before'
+            ? `Before ${view.toMonth || '...'}`
+            : `${view.fromMonth || '...'} to ${view.toMonth || '...'}`
+    ];
+    if (view.selectedCustomers.length) parts.push(`${view.selectedCustomers.length} customer${view.selectedCustomers.length > 1 ? 's' : ''}`);
+    if (view.selectedCountries.length) parts.push(`${view.selectedCountries.length} countr${view.selectedCountries.length > 1 ? 'ies' : 'y'}`);
+    if (view.selectedTerritories.length) parts.push(`${view.selectedTerritories.length} territor${view.selectedTerritories.length > 1 ? 'ies' : 'y'}`);
+    if (view.selectedParts.length) parts.push(`${view.selectedParts.length} part${view.selectedParts.length > 1 ? 's' : ''}`);
+    if (view.selectedProdGroups.length) parts.push(`${view.selectedProdGroups.length} group${view.selectedProdGroups.length > 1 ? 's' : ''}`);
+    if (view.selectedClasses.length) parts.push(`${view.selectedClasses.length} class${view.selectedClasses.length > 1 ? 'es' : ''}`);
+    if (view.searchText) parts.push(`LineDesc contains "${view.searchText}"`);
+    return parts.join(' | ');
+  };
+  const savedViewItems = savedViews.map((view) => ({
+    name: view.name,
+    summary: describeSavedView(view.snapshot),
+    active: view.name === activeViewName
+  }));
+
 
   return <div>
-    <PageHeader title="Pricing" subtitle={datasetMeta ? `${datasetMeta.dateRange} · ${datasetMeta.rowCount.toLocaleString()} rows` : 'Upload dataset to start'} />
+    <PageHeader title="Pricing" subtitle={datasetMeta ? `${datasetMeta.dateRange} · ${formatInteger(datasetMeta.rowCount)} rows` : 'Upload dataset to start'} />
 
     {loadError && <div className="card p-3 mb-3 border border-red-400/40 text-red-300 text-sm">{loadError}</div>}
 
+    <SavedViewsPanel
+      description="Save the current Pricing filters, then apply or delete them whenever needed."
+      saveName={saveName}
+      onSaveNameChange={setSaveName}
+      onSave={saveCurrentView}
+      savePlaceholder="Ex: APAC critical pricing"
+      collapsed={savedViewsCollapsed}
+      onToggleCollapsed={() => setSavedViewsCollapsed(!savedViewsCollapsed)}
+      items={savedViewItems}
+      onApply={(name) => {
+        const target = savedViews.find((view) => view.name === name);
+        if (target) applySavedView(target.snapshot);
+      }}
+      onDelete={deleteSavedView}
+      collapsedSummary={`${formatInteger(savedViews.length)} saved view${savedViews.length === 1 ? '' : 's'}. Expand to manage them.`}
+    />
+
     <section className="card p-3 mb-3">
-      <h3 className="font-semibold mb-2">Filters</h3>
-      <p className="text-xs text-[var(--text-muted)] mb-2">Tip: tick multiple values in each filter to combine selections freely.</p>
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div>
+          <h3 className="font-semibold">Filters</h3>
+          <p className="text-xs text-[var(--text-muted)] mt-2">Tip: tick multiple values in each filter to combine selections freely.</p>
+        </div>
+        <button className="card px-3 py-1 text-xs" onClick={resetFilters}>Reset filters</button>
+      </div>
       <div className="grid lg:grid-cols-3 gap-3">
-        <div className="space-y-2"><input value={customerSearch} onChange={(e) => setCustomerSearch(e.target.value)} placeholder="Search customer" className="card w-full px-2 py-1 text-xs" /><MultiPick label="Customers" options={customerOptions} values={selectedCustomers} onChange={setSelectedCustomers} /></div>
-        <div className="space-y-2"><input value={countrySearch} onChange={(e) => setCountrySearch(e.target.value)} placeholder="Search country" className="card w-full px-2 py-1 text-xs" /><MultiPick label="Countries" options={countryOptions} values={selectedCountries} onChange={setSelectedCountries} /></div>
-        <div className="space-y-2"><input value={territorySearch} onChange={(e) => setTerritorySearch(e.target.value)} placeholder="Search territory" className="card w-full px-2 py-1 text-xs" /><MultiPick label="Territories" options={territoryOptions} values={selectedTerritories} onChange={setSelectedTerritories} /></div>
-        <div className="space-y-2"><input value={partSearch} onChange={(e) => setPartSearch(e.target.value)} placeholder="Search part" className="card w-full px-2 py-1 text-xs" /><MultiPick label="Parts" options={partOptions} values={selectedParts} onChange={setSelectedParts} /></div>
-        <div className="space-y-2"><input value={groupSearch} onChange={(e) => setGroupSearch(e.target.value)} placeholder="Search group" className="card w-full px-2 py-1 text-xs" /><MultiPick label="ProdGroups" options={groupOptions} values={selectedProdGroups} onChange={setSelectedProdGroups} /></div>
-        <div className="space-y-2"><input value={classSearch} onChange={(e) => setClassSearch(e.target.value)} placeholder="Search class" className="card w-full px-2 py-1 text-xs" /><MultiPick label="Class" options={classOptions} values={selectedClasses} onChange={setSelectedClasses} /></div>
+        <SearchMultiPickFilter searchValue={customerSearch} onSearchChange={setCustomerSearch} searchPlaceholder="Search customer" label="Customers" options={customerOptions} values={selectedCustomers} onChange={setSelectedCustomers} />
+        <SearchMultiPickFilter searchValue={countrySearch} onSearchChange={setCountrySearch} searchPlaceholder="Search country" label="Countries" options={countryOptions} values={selectedCountries} onChange={setSelectedCountries} />
+        <SearchMultiPickFilter searchValue={territorySearch} onSearchChange={setTerritorySearch} searchPlaceholder="Search territory" label="Territories" options={territoryOptions} values={selectedTerritories} onChange={setSelectedTerritories} />
+        <SearchMultiPickFilter searchValue={partSearch} onSearchChange={setPartSearch} searchPlaceholder="Search part" label="Parts" options={partOptions} values={selectedParts} onChange={setSelectedParts} />
+        <SearchMultiPickFilter searchValue={groupSearch} onSearchChange={setGroupSearch} searchPlaceholder="Search group" label="ProdGroups" options={groupOptions} values={selectedProdGroups} onChange={setSelectedProdGroups} />
+        <SearchMultiPickFilter searchValue={classSearch} onSearchChange={setClassSearch} searchPlaceholder="Search class" label="Class" options={classOptions} values={selectedClasses} onChange={setSelectedClasses} />
       </div>
       <div className="grid md:grid-cols-4 gap-2 mt-3">
         <label className="text-xs text-[var(--text-muted)]">LineDesc contains<input value={searchText} onChange={(e) => setSearchText(e.target.value)} className="card w-full px-2 py-1 mt-1" /></label>
@@ -201,10 +302,10 @@ export function PricingPage() {
     <section className="mb-4 border-2 border-[var(--teal)]/40 rounded-2xl p-4 bg-[var(--surface)]/20">
       <div className="flex items-center justify-between mb-3"><h3 className="font-semibold text-base">Pricing Graphics</h3><button className="card px-3 py-1 text-xs" onClick={() => setGraphicsCollapsed((x) => !x)}>{graphicsCollapsed ? 'Show pricing graphics' : 'Hide pricing graphics'}</button></div>
       {!graphicsCollapsed && <div className="grid xl:grid-cols-2 gap-4">
-        <section className="card p-3 h-[22rem]"><h3 className="font-semibold mb-2">Revenue vs. Time</h3><ResponsiveContainer><LineChart data={trendData}><XAxis dataKey="period"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} /><Line type="monotone" dataKey="revenue" stroke="#06b6d4" /></LineChart></ResponsiveContainer></section>
-        <section className="card p-3 h-[22rem]"><h3 className="font-semibold mb-2">Cost vs. Time</h3><ResponsiveContainer><LineChart data={trendData}><XAxis dataKey="period"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} /><Line type="monotone" dataKey="cost" stroke="#f59e0b" /></LineChart></ResponsiveContainer></section>
-        <section className="card p-3 h-[22rem]"><h3 className="font-semibold mb-2">Profit vs. Time</h3><ResponsiveContainer><LineChart data={trendData}><XAxis dataKey="period"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} /><Line type="monotone" dataKey="profit" stroke="#22c55e" /></LineChart></ResponsiveContainer></section>
-        <section className="card p-3 h-[22rem]"><h3 className="font-semibold mb-2">Margin % vs. Time</h3><ResponsiveContainer><LineChart data={trendData}><XAxis dataKey="period"/><YAxis/><Tooltip formatter={(v) => pct(Number(v))} /><Line type="monotone" dataKey="margin_pct" stroke="#a855f7" /></LineChart></ResponsiveContainer></section>
+        <section className="card p-3 h-[22rem]"><h3 className="font-semibold mb-2">Revenue vs. Time</h3><ResponsiveContainer><LineChart data={trendData}><XAxis dataKey="period" {...cartesianAxisProps} /><YAxis {...cartesianAxisProps} /><Tooltip formatter={(v) => currency(Number(v))} {...chartTooltipProps} /><Line type="monotone" dataKey="revenue" stroke="#06b6d4" /></LineChart></ResponsiveContainer></section>
+        <section className="card p-3 h-[22rem]"><h3 className="font-semibold mb-2">Cost vs. Time</h3><ResponsiveContainer><LineChart data={trendData}><XAxis dataKey="period" {...cartesianAxisProps} /><YAxis {...cartesianAxisProps} /><Tooltip formatter={(v) => currency(Number(v))} {...chartTooltipProps} /><Line type="monotone" dataKey="cost" stroke="#f59e0b" /></LineChart></ResponsiveContainer></section>
+        <section className="card p-3 h-[22rem]"><h3 className="font-semibold mb-2">Profit vs. Time</h3><ResponsiveContainer><LineChart data={trendData}><XAxis dataKey="period" {...cartesianAxisProps} /><YAxis {...cartesianAxisProps} /><Tooltip formatter={(v) => currency(Number(v))} {...chartTooltipProps} /><Line type="monotone" dataKey="profit" stroke="#22c55e" /></LineChart></ResponsiveContainer></section>
+        <section className="card p-3 h-[22rem]"><h3 className="font-semibold mb-2">Margin % vs. Time</h3><ResponsiveContainer><LineChart data={trendData}><XAxis dataKey="period" {...cartesianAxisProps} /><YAxis {...cartesianAxisProps} /><Tooltip formatter={(v) => pct(Number(v))} {...chartTooltipProps} /><Line type="monotone" dataKey="margin_pct" stroke="#a855f7" /></LineChart></ResponsiveContainer></section>
       </div>}
     </section>
 
@@ -216,14 +317,25 @@ export function PricingPage() {
     </section>
 
 
+    <TablePager
+      totalRows={rowsSorted.length}
+      page={pricingTable.page}
+      pageSize={pricingTable.pageSize}
+      pageCount={pricingTable.pageCount}
+      rangeStart={pricingTable.rangeStart}
+      rangeEnd={pricingTable.rangeEnd}
+      onPageChange={pricingTable.setPage}
+      onPageSizeChange={pricingTable.setPageSize}
+    />
+
     <section className="card overflow-auto">
       <table className="w-full table-auto text-sm">
         <thead className="bg-[var(--surface)] sticky top-0"><tr className="text-left border-b border-[var(--border)]">
-          <th className="px-3 py-2">Invoice Month</th><th className="px-3 py-2">Invoice #</th><th className="px-3 py-2">CustID</th><th className="px-3 py-2">CustName</th><th className="px-3 py-2">Country</th><th className="px-3 py-2">PartNum</th><th className="px-3 py-2">LineDesc (25)</th>
+          <th className="px-3 py-2">Invoice Month</th><th className="px-3 py-2">Invoice #</th><th className="px-3 py-2">CustID</th><th className="px-3 py-2">CustName</th><th className="px-3 py-2">Country</th><th className="px-3 py-2">PartNum</th><th className="px-3 py-2">LineDesc (Expandable)</th>
           <th className="px-3 py-2">Price</th><th className="px-3 py-2">Cost</th><th className="px-3 py-2">Profit</th><th className="px-3 py-2">Profit %</th>
         </tr></thead>
-        <tbody>{rowsSorted.map((row, i) => <tr key={`${row.invoice_num}-${row.part_num}-${i}`} className="border-b border-[var(--border)] hover:bg-[var(--surface)]/60 align-top">
-          <td className="px-3 py-2 whitespace-nowrap">{row.invoice_month}</td><td className="px-3 py-2 whitespace-nowrap">{row.invoice_num}</td><td className="px-3 py-2 whitespace-nowrap">{row.cust_id}</td><td className="px-3 py-2 whitespace-normal break-words">{row.cust_name}</td><td className="px-3 py-2 whitespace-nowrap">{row.country}</td><td className="px-3 py-2 whitespace-nowrap">{row.part_num}</td><td className="px-3 py-2 whitespace-normal break-words">{row.line_desc_short}</td>
+        <tbody>{pricingTable.pageRows.map((row, i) => <tr key={`${row.invoice_num}-${row.part_num}-${pricingTable.rangeStart + i}`} className="border-b border-[var(--border)] hover:bg-[var(--surface)]/60 align-top">
+          <td className="px-3 py-2 whitespace-nowrap">{row.invoice_month}</td><td className="px-3 py-2 whitespace-nowrap">{row.invoice_num}</td><td className="px-3 py-2 whitespace-nowrap">{row.cust_id}</td><td className="px-3 py-2 whitespace-normal break-words">{row.cust_name}</td><td className="px-3 py-2 whitespace-nowrap">{row.country}</td><td className="px-3 py-2 whitespace-nowrap">{row.part_num}</td><td className="px-3 py-2 whitespace-normal break-words"><ExpandableText previewText={row.line_desc_short} fullText={row.line_desc_full} /></td>
           <td className="px-3 py-2 whitespace-nowrap">{currency(row.amount)}</td><td className="px-3 py-2 whitespace-nowrap">{row.cost == null ? '-' : currency(row.cost)}</td><td className="px-3 py-2 whitespace-nowrap">{row.profit == null ? '-' : currency(row.profit)}</td><td className="px-3 py-2 whitespace-nowrap">{row.margin_pct == null ? '-' : pct(row.margin_pct)}</td>
         </tr>)}</tbody>
       </table>

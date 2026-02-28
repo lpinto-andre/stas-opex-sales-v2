@@ -1,29 +1,30 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { cartesianAxisProps, chartTooltipProps } from '@/components/ui/chartStyles';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { SavedViewsPanel } from '@/components/ui/SavedViewsPanel';
 import { getCustomerOptions, getDistinctOptions, getRevenueCostProfitOverTime, type Filters } from '@/data/queries';
+import { useSavedViews } from '@/hooks/useSavedViews';
 import { useAppStore } from '@/state/store';
+import { formatCurrency as currency, formatInteger, formatPercent as pct } from '@/utils/formatters';
+import { monthEnd, monthStart, safeMonthInput } from '@/utils/monthRange';
 
 type CompareBy = 'country' | 'customer' | 'part_num' | 'prod_group';
 type PeriodMode = 'all' | 'after' | 'before' | 'between';
 type YesNo = 'no' | 'yes';
 type Option = { value: string; label: string };
+type PricingComparatorSavedView = {
+  compareBy: CompareBy;
+  selectedValues: string[];
+  compareAlsoByPart: YesNo;
+  selectedPart: string[];
+  periodMode: PeriodMode;
+  fromMonth: string;
+  toMonth: string;
+};
 
 const COLORS = ['#0ea5e9', '#22c55e', '#f97316', '#a855f7', '#06b6d4'];
-const currency = (v: number) => `$${Math.round(v).toLocaleString()}`;
-const pct = (v: number) => `${Math.round(v * 100)}%`;
-const isValidMonth = (m: string) => /^\d{4}-\d{2}$/.test(m);
-const safeMonthInput = (v: string) => (/^\d{0,4}(?:-\d{0,2})?$/.test(v) ? v : null);
-const monthStart = (m: string) => (isValidMonth(m) ? `${m}-01` : '');
-const monthEnd = (m: string) => {
-  if (!isValidMonth(m)) return '';
-  const [y, mo] = m.split('-').map(Number);
-  const d = new Date(y, mo, 0);
-  return `${y}-${String(mo).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
-const tooltipStyle = { background: '#0f172a', border: '1px solid #334155', color: '#f8fafc' };
-const tooltipLabelStyle = { color: '#f8fafc', fontWeight: 600 };
 
 function MultiPick({ options, values, onChange, max }: { options: Option[]; values: string[]; onChange: (next: string[]) => void; max: number }) {
   const toggle = (value: string) => onChange(values.includes(value) ? values.filter((v) => v !== value) : values.length >= max ? values : [...values, value]);
@@ -64,6 +65,7 @@ export function PricingComparatorPage() {
   const [periodMode, setPeriodMode] = useState<PeriodMode>((saved.comparatorPeriodMode as PeriodMode) ?? 'all');
   const [fromMonth, setFromMonth] = useState(String(saved.comparatorFromMonth ?? ''));
   const [toMonth, setToMonth] = useState(String(saved.comparatorToMonth ?? ''));
+  const [isApplyingSavedView, setIsApplyingSavedView] = useState(false);
 
   const [tableRows, setTableRows] = useState<Record<string, string | number>[]>([]);
 
@@ -83,8 +85,34 @@ export function PricingComparatorPage() {
     }
     return f;
   }, [saved.selectedTerritories, saved.selectedClasses, saved.searchText, periodMode, fromMonth, toMonth]);
+  const currentSavedView = useMemo<PricingComparatorSavedView>(() => ({
+    compareBy,
+    selectedValues,
+    compareAlsoByPart: canCompareAlsoByPart ? compareAlsoByPart : 'no',
+    selectedPart: canCompareAlsoByPart && compareAlsoByPart === 'yes' ? selectedPart : [],
+    periodMode,
+    fromMonth,
+    toMonth
+  }), [compareBy, selectedValues, canCompareAlsoByPart, compareAlsoByPart, selectedPart, periodMode, fromMonth, toMonth]);
+  const {
+    activeViewName,
+    collapsed: savedViewsCollapsed,
+    deleteSavedView,
+    saveCurrentView,
+    saveName,
+    savedViews,
+    setCollapsed: setSavedViewsCollapsed,
+    setSaveName
+  } = useSavedViews<PricingComparatorSavedView>({
+    storageKey: 'saved-views-pricing-comparator',
+    currentSnapshot: currentSavedView
+  });
 
   useEffect(() => {
+    if (isApplyingSavedView) {
+      setIsApplyingSavedView(false);
+      return;
+    }
     setSelectedValues([]);
     setLookup('');
     if (!canCompareAlsoByPart) {
@@ -92,7 +120,7 @@ export function PricingComparatorPage() {
       setSelectedPart([]);
       setPartLookup('');
     }
-  }, [compareBy, canCompareAlsoByPart]);
+  }, [compareBy, canCompareAlsoByPart, isApplyingSavedView]);
 
   useEffect(() => {
     loadOptions(compareBy, lookup).then(setOptions);
@@ -155,19 +183,84 @@ export function PricingComparatorPage() {
       <h3 className="font-semibold mb-2">{title}</h3>
       <ResponsiveContainer>
         <LineChart data={tableRows}>
-          <XAxis dataKey="period" />
-          <YAxis />
-          <Tooltip shared formatter={(v) => formatter(Number(v))} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />
+          <XAxis dataKey="period" {...cartesianAxisProps} />
+          <YAxis {...cartesianAxisProps} />
+          <Tooltip shared formatter={(v) => formatter(Number(v))} {...chartTooltipProps} />
           {selectedValues.map((value, i) => <Line key={`${value}-${metric}`} type="monotone" dataKey={`${value}__${metric}`} name={value} stroke={COLORS[i % COLORS.length]} dot={false} connectNulls />)}
         </LineChart>
       </ResponsiveContainer>
     </section>
   );
 
+  const resetFilters = () => {
+    setCompareBy('country');
+    setLookup('');
+    setSelectedValues([]);
+    setCompareAlsoByPart('no');
+    setPartLookup('');
+    setSelectedPart([]);
+    setPeriodMode('all');
+    setFromMonth('');
+    setToMonth('');
+  };
+  const applySavedView = (view: PricingComparatorSavedView) => {
+    setIsApplyingSavedView(true);
+    setCompareBy(view.compareBy);
+    setSelectedValues(view.selectedValues);
+    setCompareAlsoByPart(view.compareAlsoByPart);
+    setSelectedPart(view.selectedPart);
+    setPeriodMode(view.periodMode);
+    setFromMonth(view.fromMonth);
+    setToMonth(view.toMonth);
+    setLookup('');
+    setPartLookup('');
+  };
+  const describeSavedView = (view: PricingComparatorSavedView) => {
+    const parts = [
+      `Compare by ${view.compareBy}`,
+      `${view.selectedValues.length} value${view.selectedValues.length === 1 ? '' : 's'}`,
+      view.periodMode === 'all'
+        ? 'All period'
+        : view.periodMode === 'after'
+          ? `After ${view.fromMonth || '...'}`
+          : view.periodMode === 'before'
+            ? `Before ${view.toMonth || '...'}`
+            : `${view.fromMonth || '...'} to ${view.toMonth || '...'}`
+    ];
+    if (view.compareAlsoByPart === 'yes' && view.selectedPart[0]) parts.push(`Part ${view.selectedPart[0]}`);
+    return parts.join(' | ');
+  };
+  const savedViewItems = savedViews.map((view) => ({
+    name: view.name,
+    summary: describeSavedView(view.snapshot),
+    active: view.name === activeViewName
+  }));
+
   return <div>
     <PageHeader title="Pricing Comparator" subtitle="Compare up to 5 values with optional part-number focus and period filter." actions={<Link to="/pricing" className="card px-3 py-2">Back to Pricing</Link>} />
 
+    <SavedViewsPanel
+      description="Save the current comparator setup, then apply or delete it whenever needed."
+      saveName={saveName}
+      onSaveNameChange={setSaveName}
+      onSave={saveCurrentView}
+      savePlaceholder="Ex: Country comparison Q4"
+      collapsed={savedViewsCollapsed}
+      onToggleCollapsed={() => setSavedViewsCollapsed(!savedViewsCollapsed)}
+      items={savedViewItems}
+      onApply={(name) => {
+        const target = savedViews.find((view) => view.name === name);
+        if (target) applySavedView(target.snapshot);
+      }}
+      onDelete={deleteSavedView}
+      collapsedSummary={`${formatInteger(savedViews.length)} saved view${savedViews.length === 1 ? '' : 's'}. Expand to manage them.`}
+    />
+
     <section className="card p-3 mb-4">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <h3 className="font-semibold">Filters</h3>
+        <button className="card px-3 py-1 text-xs" onClick={resetFilters}>Reset filters</button>
+      </div>
       <div className="grid md:grid-cols-2 gap-3">
         <label className="text-xs text-[var(--text-muted)]">Compare by
           <select value={compareBy} onChange={(e) => setCompareBy(e.target.value as CompareBy)} className="card w-full px-2 py-1 mt-1">
