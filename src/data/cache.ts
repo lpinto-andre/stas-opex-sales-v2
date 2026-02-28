@@ -3,6 +3,7 @@ import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 
 const DB_NAME = 'stas-opex-cache';
 const FALLBACK_KEY = 'stas-opex-cache-v1';
+const POTENTIAL_FALLBACK_KEY = 'stas-opex-potential-v1';
 
 async function getStore() {
   return openDB(DB_NAME, 1, {
@@ -76,6 +77,51 @@ export async function clearDatasetPackage() {
   await db.delete('dataset', 'data.ndjson');
   await db.delete('dataset', 'data.arrow');
   await db.delete('dataset', 'meta.json');
+}
+
+export async function savePotentialState(state: object) {
+  if (typeof window !== 'undefined') {
+    try {
+      window.localStorage.setItem(POTENTIAL_FALLBACK_KEY, JSON.stringify(state));
+    } catch (error) {
+      console.warn('Unable to save potential localStorage fallback.', error);
+    }
+  }
+  try {
+    const db = await getStore();
+    await db.put('dataset', state, 'potential.json');
+  } catch (error) {
+    console.warn('Unable to save potential IndexedDB cache.', error);
+  }
+}
+
+export async function loadPotentialState() {
+  try {
+    const db = await getStore();
+    const potential = (await db.get('dataset', 'potential.json')) as Record<string, unknown> | undefined;
+    if (potential) return potential;
+  } catch (error) {
+    console.warn('IndexedDB potential cache read failed, trying localStorage fallback.', error);
+  }
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(POTENTIAL_FALLBACK_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch (error) {
+    console.warn('Unable to read potential localStorage fallback.', error);
+    return null;
+  }
+}
+
+export async function clearPotentialState() {
+  if (typeof window !== 'undefined') window.localStorage.removeItem(POTENTIAL_FALLBACK_KEY);
+  try {
+    const db = await getStore();
+    await db.delete('dataset', 'potential.json');
+  } catch (error) {
+    console.warn('Unable to clear potential cache.', error);
+  }
 }
 
 export function buildStasPack(dataNdjson: Uint8Array, meta: object) {

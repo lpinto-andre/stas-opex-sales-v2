@@ -1,23 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Bar, BarChart, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { cartesianAxisProps, chartTooltipProps } from '@/components/ui/chartStyles';
+import { ExpandableText } from '@/components/ui/ExpandableText';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { TablePager } from '@/components/ui/TablePager';
 import { getOrderTotalsForParts, getOrdersByFYAndPartForParts, getOrdersByFYForParts, getPartsOrdersByFY, getPartsPriorityRows, getPartsRevenueByFY, getRevenueByFYAndPartForParts, getRevenueByFYForParts, getRevenueCostProfitOverTime, getRevenueTotalsForParts, type Filters } from '@/data/queries';
+import { usePaginatedRows } from '@/hooks/usePaginatedRows';
 import { useAppStore } from '@/state/store';
+import { formatCurrency as currency, formatInteger, formatPercent as pct } from '@/utils/formatters';
+import { monthEnd, monthStart, safeMonthInput } from '@/utils/monthRange';
 
 type TopKey = 'trendRevenue' | 'trendOrders' | 'trendCost' | 'trendProfit' | 'trendMargin' | 'totalRevenue' | 'totalOrders' | 'multiRevenue' | 'multiOrders';
 type TopSectionFilter = { fromMonth: string; toMonth: string; parts: string[] };
 type PartRow = {
-  cust_id: string; cust_name: string; country: string; part_num: string; line_desc_short: string; prod_group: string;
+  cust_id: string; cust_name: string; country: string; part_num: string; line_desc_short: string; line_desc_full: string; prod_group: string;
   orders: number; revenue: number; profit: number; profit_pct: number; active_fy_count: number; [key: string]: string | number;
 };
 const COLORS = ['#0ea5e9', '#22c55e', '#f97316', '#a855f7', '#06b6d4', '#f43f5e', '#eab308', '#10b981'];
-const currency = (value: number) => `$${Math.round(value).toLocaleString()}`;
-const pct = (value: number) => `${Math.round(value * 100)}%`;
-const isValidMonth = (m: string) => /^\d{4}-\d{2}$/.test(m);
-const safeMonthInput = (v: string) => (/^\d{0,4}(?:-\d{0,2})?$/.test(v) ? v : null);
-const monthStart = (m: string) => (isValidMonth(m) ? `${m}-01` : '');
-const monthEnd = (m: string) => { if (!isValidMonth(m)) return ''; const [y, mo] = m.split('-').map(Number); const d = new Date(y, mo, 0); return `${y}-${String(mo).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 const titleByKey: Record<TopKey, string> = {
   trendRevenue: 'Top Items: Revenue by Time', trendOrders: 'Top Items: Orders by Time', trendCost: 'Top Items: Total Cost by Time', trendProfit: 'Top Items: Total Profit by Time', trendMargin: 'Top Items: Total Margin % by Time', totalRevenue: 'Top Items: Total Revenue', totalOrders: 'Top Items: Total Orders', multiRevenue: 'Top Items: Revenue by Time (multiple curves)', multiOrders: 'Top Items: Orders by Time (multiple curves)'
@@ -64,6 +64,7 @@ export function ExplorerGraphicDetailPage() {
   const [fyColumns, setFyColumns] = useState<number[]>([]);
   const [chartRows, setChartRows] = useState<Record<string, unknown>[]>([]);
   const [pieRows, setPieRows] = useState<{ part_num: string; revenue: number }[]>([]);
+  const detailTable = usePaginatedRows(tableRows, 100);
 
   useEffect(() => {
     const nextTopFilters = { ...topFilters, [graphicKey]: { fromMonth, toMonth, parts } };
@@ -80,7 +81,7 @@ export function ExplorerGraphicDetailPage() {
       (base as Record<string, unknown>[]).forEach((r) => {
         const part = String(r.part_num ?? '');
         if (!part || !parts.includes(part)) return;
-        map.set(part, { cust_id: String(r.cust_id ?? ''), cust_name: String(r.cust_name ?? ''), country: String(r.country ?? ''), part_num: part, line_desc_short: String(r.line_desc_short ?? ''), prod_group: String(r.prod_group ?? ''), orders: Number(r.orders ?? 0), revenue: Number(r.revenue ?? 0), profit: Number(r.profit ?? 0), profit_pct: Number(r.profit_pct ?? 0), active_fy_count: 0 });
+        map.set(part, { cust_id: String(r.cust_id ?? ''), cust_name: String(r.cust_name ?? ''), country: String(r.country ?? ''), part_num: part, line_desc_short: String(r.line_desc_short ?? ''), line_desc_full: String(r.line_desc_full ?? r.line_desc_display ?? r.line_desc_short ?? ''), prod_group: String(r.prod_group ?? ''), orders: Number(r.orders ?? 0), revenue: Number(r.revenue ?? 0), profit: Number(r.profit ?? 0), profit_pct: Number(r.profit_pct ?? 0), active_fy_count: 0 });
       });
       const yearsSet = new Set<number>();
       (revFy as Record<string, unknown>[]).forEach((r) => { const part = String(r.part_num ?? ''); const fy = Number(r.fy ?? 0); const row = map.get(part); if (!row || !fy) return; yearsSet.add(fy); row[`revenue_fy_${fy}`] = Number(r.revenue ?? 0); });
@@ -99,19 +100,19 @@ export function ExplorerGraphicDetailPage() {
   };
 
   const renderExpanded = () => {
-    if (graphicKey === 'trendRevenue') return <LineChart data={chartRows.map((r) => ({ fy: String(r.fy ?? ''), revenue: Number(r.revenue ?? 0) }))}><XAxis dataKey="fy"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} /><Line type="monotone" dataKey="revenue" stroke="#0ea5e9" /></LineChart>;
-    if (graphicKey === 'trendOrders') return <LineChart data={chartRows.map((r) => ({ fy: String(r.fy ?? ''), orders: Number(r.orders ?? 0) }))}><XAxis dataKey="fy"/><YAxis/><Tooltip /><Line type="monotone" dataKey="orders" stroke="#84cc16" /></LineChart>;
-    if (graphicKey === 'trendCost') return <LineChart data={chartRows.map((r) => ({ fy: String(r.period ?? ''), cost: Number(r.cost ?? 0) }))}><XAxis dataKey="fy"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} /><Line type="monotone" dataKey="cost" stroke="#f59e0b" /></LineChart>;
-    if (graphicKey === 'trendProfit') return <LineChart data={chartRows.map((r) => ({ fy: String(r.period ?? ''), profit: Number(r.profit ?? 0) }))}><XAxis dataKey="fy"/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} /><Line type="monotone" dataKey="profit" stroke="#22c55e" /></LineChart>;
-    if (graphicKey === 'trendMargin') return <LineChart data={chartRows.map((r) => ({ fy: String(r.period ?? ''), margin_pct: Number(r.margin_pct ?? 0) }))}><XAxis dataKey="fy"/><YAxis/><Tooltip formatter={(v) => pct(Number(v))} /><Line type="monotone" dataKey="margin_pct" stroke="#a855f7" /></LineChart>;
-    if (graphicKey === 'totalRevenue') return <BarChart data={chartRows.map((r) => ({ part_num: String(r.part_num ?? ''), revenue: Number(r.revenue ?? 0) }))}><XAxis dataKey="part_num" interval={0} minTickGap={0}/><YAxis/><Tooltip formatter={(v) => currency(Number(v))} /><Bar dataKey="revenue" fill="#0ea5e9"/></BarChart>;
-    if (graphicKey === 'totalOrders') return <BarChart data={chartRows.map((r) => ({ part_num: String(r.part_num ?? ''), orders: Number(r.orders ?? 0) }))}><XAxis dataKey="part_num" interval={0} minTickGap={0}/><YAxis/><Tooltip /><Bar dataKey="orders" fill="#65a30d"/></BarChart>;
+    if (graphicKey === 'trendRevenue') return <LineChart data={chartRows.map((r) => ({ fy: String(r.fy ?? ''), revenue: Number(r.revenue ?? 0) }))}><XAxis dataKey="fy" {...cartesianAxisProps} /><YAxis {...cartesianAxisProps} /><Tooltip formatter={(v) => currency(Number(v))} {...chartTooltipProps} /><Line type="monotone" dataKey="revenue" stroke="#0ea5e9" /></LineChart>;
+    if (graphicKey === 'trendOrders') return <LineChart data={chartRows.map((r) => ({ fy: String(r.fy ?? ''), orders: Number(r.orders ?? 0) }))}><XAxis dataKey="fy" {...cartesianAxisProps} /><YAxis {...cartesianAxisProps} /><Tooltip {...chartTooltipProps} /><Line type="monotone" dataKey="orders" stroke="#84cc16" /></LineChart>;
+    if (graphicKey === 'trendCost') return <LineChart data={chartRows.map((r) => ({ fy: String(r.period ?? ''), cost: Number(r.cost ?? 0) }))}><XAxis dataKey="fy" {...cartesianAxisProps} /><YAxis {...cartesianAxisProps} /><Tooltip formatter={(v) => currency(Number(v))} {...chartTooltipProps} /><Line type="monotone" dataKey="cost" stroke="#f59e0b" /></LineChart>;
+    if (graphicKey === 'trendProfit') return <LineChart data={chartRows.map((r) => ({ fy: String(r.period ?? ''), profit: Number(r.profit ?? 0) }))}><XAxis dataKey="fy" {...cartesianAxisProps} /><YAxis {...cartesianAxisProps} /><Tooltip formatter={(v) => currency(Number(v))} {...chartTooltipProps} /><Line type="monotone" dataKey="profit" stroke="#22c55e" /></LineChart>;
+    if (graphicKey === 'trendMargin') return <LineChart data={chartRows.map((r) => ({ fy: String(r.period ?? ''), margin_pct: Number(r.margin_pct ?? 0) }))}><XAxis dataKey="fy" {...cartesianAxisProps} /><YAxis {...cartesianAxisProps} /><Tooltip formatter={(v) => pct(Number(v))} {...chartTooltipProps} /><Line type="monotone" dataKey="margin_pct" stroke="#a855f7" /></LineChart>;
+    if (graphicKey === 'totalRevenue') return <BarChart data={chartRows.map((r) => ({ part_num: String(r.part_num ?? ''), revenue: Number(r.revenue ?? 0) }))}><XAxis dataKey="part_num" interval={0} minTickGap={0} {...cartesianAxisProps} /><YAxis {...cartesianAxisProps} /><Tooltip formatter={(v) => currency(Number(v))} {...chartTooltipProps} /><Bar dataKey="revenue" fill="#0ea5e9"/></BarChart>;
+    if (graphicKey === 'totalOrders') return <BarChart data={chartRows.map((r) => ({ part_num: String(r.part_num ?? ''), orders: Number(r.orders ?? 0) }))}><XAxis dataKey="part_num" interval={0} minTickGap={0} {...cartesianAxisProps} /><YAxis {...cartesianAxisProps} /><Tooltip {...chartTooltipProps} /><Bar dataKey="orders" fill="#65a30d"/></BarChart>;
     if (graphicKey === 'multiRevenue') {
       const series = parts.slice(0, 8); const data = pivotByFy(chartRows, 'revenue', series);
-      return <LineChart data={data}><XAxis dataKey="fy"/><YAxis/><Tooltip shared formatter={(v) => currency(Number(v))} />{series.map((p, i) => <Line key={p} type="monotone" dataKey={p} stroke={COLORS[i % COLORS.length]} dot />)}</LineChart>;
+      return <LineChart data={data}><XAxis dataKey="fy" {...cartesianAxisProps} /><YAxis {...cartesianAxisProps} /><Tooltip shared formatter={(v) => currency(Number(v))} {...chartTooltipProps} />{series.map((p, i) => <Line key={p} type="monotone" dataKey={p} stroke={COLORS[i % COLORS.length]} dot />)}</LineChart>;
     }
     const series = parts.slice(0, 8); const data = pivotByFy(chartRows, 'orders', series);
-    return <LineChart data={data}><XAxis dataKey="fy"/><YAxis/><Tooltip shared />{series.map((p, i) => <Line key={p} type="monotone" dataKey={p} stroke={COLORS[i % COLORS.length]} dot />)}</LineChart>;
+    return <LineChart data={data}><XAxis dataKey="fy" {...cartesianAxisProps} /><YAxis {...cartesianAxisProps} /><Tooltip shared {...chartTooltipProps} />{series.map((p, i) => <Line key={p} type="monotone" dataKey={p} stroke={COLORS[i % COLORS.length]} dot />)}</LineChart>;
   };
 
   return <div>
@@ -128,12 +129,23 @@ export function ExplorerGraphicDetailPage() {
 
     <section className="card p-3 h-[34rem] mb-4"><h3 className="font-semibold mb-2">Expanded Chart</h3><ResponsiveContainer>{renderExpanded()}</ResponsiveContainer></section>
 
-    <section className="card p-3 h-[22rem] mb-4"><h3 className="font-semibold mb-2">Revenue Mix (donut)</h3><ResponsiveContainer><PieChart><Pie data={pieRows} dataKey="revenue" nameKey="part_num" innerRadius={70} outerRadius={110}>{pieRows.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}</Pie><Tooltip formatter={(v) => currency(Number(v))} /><Legend /></PieChart></ResponsiveContainer></section>
+    <section className="card p-3 h-[22rem] mb-4"><h3 className="font-semibold mb-2">Revenue Mix (donut)</h3><ResponsiveContainer><PieChart><Pie data={pieRows} dataKey="revenue" nameKey="part_num" innerRadius={70} outerRadius={110}>{pieRows.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}</Pie><Tooltip formatter={(v) => currency(Number(v))} {...chartTooltipProps} /><Legend /></PieChart></ResponsiveContainer></section>
+
+    <TablePager
+      totalRows={tableRows.length}
+      page={detailTable.page}
+      pageSize={detailTable.pageSize}
+      pageCount={detailTable.pageCount}
+      rangeStart={detailTable.rangeStart}
+      rangeEnd={detailTable.rangeEnd}
+      onPageChange={detailTable.setPage}
+      onPageSizeChange={detailTable.setPageSize}
+    />
 
     <section className="card overflow-auto">
       <table className="w-full table-auto text-sm">
-        <thead className="bg-[var(--surface)] sticky top-0"><tr className="text-left border-b border-[var(--border)]"><th className="px-3 py-2">CustID</th><th className="px-3 py-2">CustName</th><th className="px-3 py-2">Country</th><th className="px-3 py-2">PartNum</th><th className="px-3 py-2">LineDesc (25)</th><th className="px-3 py-2">ProdGroup</th><th className="px-3 py-2">Orders</th><th className="px-3 py-2">Revenue</th><th className="px-3 py-2">Profit</th><th className="px-3 py-2">Profit %</th><th className="px-3 py-2">Active FY</th>{fyColumns.map((fy) => <th key={`r-${fy}`} className="px-3 py-2">Rev FY{fy}</th>)}{fyColumns.map((fy) => <th key={`o-${fy}`} className="px-3 py-2">Ord FY{fy}</th>)}</tr></thead>
-        <tbody>{tableRows.map((row, i) => <tr key={`${row.part_num}-${i}`} className="border-b border-[var(--border)]"><td className="px-3 py-2 whitespace-nowrap">{row.cust_id}</td><td className="px-3 py-2">{row.cust_name}</td><td className="px-3 py-2 whitespace-nowrap">{row.country}</td><td className="px-3 py-2 whitespace-nowrap">{row.part_num}</td><td className="px-3 py-2">{row.line_desc_short}</td><td className="px-3 py-2 whitespace-nowrap">{row.prod_group}</td><td className="px-3 py-2 whitespace-nowrap">{Number(row.orders).toLocaleString()}</td><td className="px-3 py-2 whitespace-nowrap">{currency(Number(row.revenue))}</td><td className="px-3 py-2 whitespace-nowrap">{currency(Number(row.profit))}</td><td className="px-3 py-2 whitespace-nowrap">{pct(Number(row.profit_pct))}</td><td className="px-3 py-2 whitespace-nowrap">{row.active_fy_count}</td>{fyColumns.map((fy) => <td key={`rv-${i}-${fy}`} className="px-3 py-2 whitespace-nowrap">{currency(Number(row[`revenue_fy_${fy}`] ?? 0))}</td>)}{fyColumns.map((fy) => <td key={`ov-${i}-${fy}`} className="px-3 py-2 whitespace-nowrap">{Number(row[`orders_fy_${fy}`] ?? 0).toLocaleString()}</td>)}</tr>)}</tbody>
+        <thead className="bg-[var(--surface)] sticky top-0"><tr className="text-left border-b border-[var(--border)]"><th className="px-3 py-2">CustID</th><th className="px-3 py-2">CustName</th><th className="px-3 py-2">Country</th><th className="px-3 py-2">PartNum</th><th className="px-3 py-2">LineDesc (Expandable)</th><th className="px-3 py-2">ProdGroup</th><th className="px-3 py-2">Orders</th><th className="px-3 py-2">Revenue</th><th className="px-3 py-2">Profit</th><th className="px-3 py-2">Profit %</th><th className="px-3 py-2">Active FY</th>{fyColumns.map((fy) => <th key={`r-${fy}`} className="px-3 py-2">Rev FY{fy}</th>)}{fyColumns.map((fy) => <th key={`o-${fy}`} className="px-3 py-2">Ord FY{fy}</th>)}</tr></thead>
+        <tbody>{detailTable.pageRows.map((row, i) => <tr key={`${row.part_num}-${detailTable.rangeStart + i}`} className="border-b border-[var(--border)]"><td className="px-3 py-2 whitespace-nowrap">{row.cust_id}</td><td className="px-3 py-2">{row.cust_name}</td><td className="px-3 py-2 whitespace-nowrap">{row.country}</td><td className="px-3 py-2 whitespace-nowrap">{row.part_num}</td><td className="px-3 py-2 whitespace-normal break-words"><ExpandableText previewText={row.line_desc_short} fullText={row.line_desc_full} /></td><td className="px-3 py-2 whitespace-nowrap">{row.prod_group}</td><td className="px-3 py-2 whitespace-nowrap">{formatInteger(Number(row.orders))}</td><td className="px-3 py-2 whitespace-nowrap">{currency(Number(row.revenue))}</td><td className="px-3 py-2 whitespace-nowrap">{currency(Number(row.profit))}</td><td className="px-3 py-2 whitespace-nowrap">{pct(Number(row.profit_pct))}</td><td className="px-3 py-2 whitespace-nowrap">{formatInteger(Number(row.active_fy_count))}</td>{fyColumns.map((fy) => <td key={`rv-${i}-${fy}`} className="px-3 py-2 whitespace-nowrap">{currency(Number(row[`revenue_fy_${fy}`] ?? 0))}</td>)}{fyColumns.map((fy) => <td key={`ov-${i}-${fy}`} className="px-3 py-2 whitespace-nowrap">{formatInteger(Number(row[`orders_fy_${fy}`] ?? 0))}</td>)}</tr>)}</tbody>
       </table>
     </section>
   </div>;

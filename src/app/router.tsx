@@ -13,11 +13,13 @@ const DatabasePage = lazy(() => import('@/features/database/DatabasePage').then(
 const PricingPage = lazy(() => import('@/features/pricing/PricingPage').then((m) => ({ default: m.PricingPage })));
 const PricingComparatorPage = lazy(() => import('@/features/pricing/PricingComparatorPage').then((m) => ({ default: m.PricingComparatorPage })));
 const PotentialTablesPage = lazy(() => import('@/features/dataset/PotentialTablesPage').then((m) => ({ default: m.PotentialTablesPage })));
+const TipsPage = lazy(() => import('@/features/insights/TipsPage').then((m) => ({ default: m.TipsPage })));
 
 export function AppRouter() {
   const datasetLoaded = useAppStore((s) => s.datasetLoaded);
+  const uiLang = useAppStore((s) => s.uiLang);
   return <AppShell>
-    <Suspense fallback={<div className="card p-4 text-sm text-[var(--text-muted)]">Loading page…</div>}>
+    <Suspense fallback={<div className="card p-4 text-sm text-[var(--text-muted)]">{uiLang === 'fr' ? 'Chargement de la page...' : 'Loading page...'}</div>}>
       <Routes>
         <Route path="/dataset" element={<DatasetPage />} />
         <Route path="/explorer" element={<ExplorerPage />} />
@@ -32,6 +34,8 @@ export function AppRouter() {
         <Route path="/pricing-comparator" element={<PricingComparatorPage />} />
         <Route path="/pricing/comparator" element={<Navigate to="/pricing-comparator" replace />} />
         <Route path="/potential-tables" element={<PotentialTablesPage />} />
+        <Route path="/tips" element={<TipsPage />} />
+        <Route path="/insights" element={<Navigate to="/tips" replace />} />
         <Route path="*" element={<Navigate to={datasetLoaded ? '/explorer' : '/dataset'} replace />} />
       </Routes>
     </Suspense>

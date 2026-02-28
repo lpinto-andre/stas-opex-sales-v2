@@ -38,6 +38,7 @@ const WARNING = ['D4', 'D5', 'D6', 'D7', 'E3', 'C10', 'C11', 'C14', 'C15', 'C18'
 const LINES = [
   ['ACD', 'Graphite', 'D11', 'E11', 'B48', 'C48', 'B49', 'C49'],
   ['ACD', 'Refractory', 'F11', 'G11', 'D48', 'E48', 'D49', 'E49'],
+  ['RI', 'Graphite', 'D15', 'E15', 'H48', 'I48', 'H49', 'I49'],
   ['RI', 'Flux', 'F15', 'G15', 'F48', 'G48', 'F49', 'G49'],
   ['DBF', 'Billes', 'D19', 'E19', 'J48', 'K48', 'J49', 'K49'],
   ['DBF', 'GridPlate', 'F19', 'G19', 'L48', 'M48', 'L49', 'M49'],

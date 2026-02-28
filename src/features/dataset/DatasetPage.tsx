@@ -3,11 +3,22 @@ import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { useAppStore } from '@/state/store';
 import { importDatasetFile, type ImportStatus } from '@/data/importPipeline';
-import { clearDatasetPackage } from '@/data/cache';
+import { clearDatasetPackage, clearPotentialState, savePotentialState } from '@/data/cache';
 import { dropAllTables } from '@/data/duckdb';
 import { extractPotentialWorkbook } from '@/data/potentialWorkbook';
+import { detectTerritoryGroup, territoryGroupLabel, type TerritoryGroup } from '@/data/potentialTerritories';
 
 type ToastState = { tone: 'success' | 'error'; text: string } | null;
+type PotentialStoredFile = {
+  sourceFileName: string;
+  loadedAt: string;
+  territoryGroup: TerritoryGroup;
+  summaryTable: Record<string, unknown>[];
+  consumablesTable: Record<string, unknown>[];
+  equipmentSummaryTable: Record<string, unknown>[];
+  validationReport: Record<string, unknown>[];
+  warningNoDashSheets: string[];
+};
 
 function ImportStatusCard({ title, status, isImporting, steps, copy }: { title: string; status: ImportStatus; isImporting: boolean; steps: { phase: ImportStatus['phase']; label: string }[]; copy: { importStatus: string; idle: string; working: string } }) {
   const activeStep = steps.findIndex((s) => s.phase === status.phase);
@@ -46,6 +57,23 @@ export function DatasetPage() {
   const uiLang = useAppStore((s) => s.uiLang);
   const potentialStateRaw = useAppStore((s) => s.pageState.potential as Record<string, unknown> | undefined);
   const potentialState = potentialStateRaw ?? {};
+  const potentialFiles = useMemo<PotentialStoredFile[]>(() => {
+    const rawFiles = potentialState.files;
+    if (Array.isArray(rawFiles)) return rawFiles as PotentialStoredFile[];
+    if (potentialState.summaryTable && potentialState.consumablesTable) {
+      return [{
+        sourceFileName: String(potentialState.sourceFileName ?? 'Legacy Potential Workbook'),
+        loadedAt: String(potentialState.loadedAt ?? new Date().toISOString()),
+        territoryGroup: detectTerritoryGroup(String(potentialState.sourceFileName ?? '')),
+        summaryTable: (potentialState.summaryTable as Record<string, unknown>[]) ?? [],
+        consumablesTable: (potentialState.consumablesTable as Record<string, unknown>[]) ?? [],
+        equipmentSummaryTable: (potentialState.equipmentSummaryTable as Record<string, unknown>[]) ?? [],
+        validationReport: (potentialState.validationReport as Record<string, unknown>[]) ?? [],
+        warningNoDashSheets: (potentialState.warningNoDashSheets as string[]) ?? []
+      }];
+    }
+    return [];
+  }, [potentialState]);
 
   const t = uiLang === 'fr' ? {
     readingFile: 'Lecture du fichier', parsingSheet: 'Analyse de la feuille', cleaningColumns: 'Nettoyage des colonnes', buildingDataset: 'Construction du dataset', savingCache: 'Sauvegarde du cache local',
@@ -58,7 +86,7 @@ export function DatasetPage() {
     importPotential: 'Importer fichier Full Potential Consumption', potentialFormats: 'Classeur Excel avec onglets clients et valeurs théoriques en cache.',
     importing: 'Importation…', importFile: 'Importer', continueImport: 'Continuer l\'import',
     noShipped: 'Aucun dataset ShippedSO chargé.', noPotential: 'Aucun classeur potentiel chargé.', loadedAt: 'Chargé le :', rows: 'Lignes :', dateRange: 'Période :',
-    sheetsExtracted: 'Feuilles extraites :', validationRows: 'Lignes de validation :', invalidSheets: 'Feuilles invalides :', openGenerated: 'Ouvrir les tables générées',
+    sheetsExtracted: 'Feuilles extraites :', validationRows: 'Lignes de validation :', invalidSheets: 'Feuilles invalides :', openGenerated: 'Ouvrir les tables générées', importedFiles: 'Fichiers importés :', territory: 'Territoire',
     qualityShipped: 'Résumé qualité — ShippedSO', qualityPotential: 'Résumé qualité — Full Potential Consumption',
     importShippedToSee: 'Importez un fichier ShippedSO pour afficher les indicateurs.', importPotentialToSee: 'Importez le classeur potentiel pour afficher la validation.',
     customers: 'Clients :', parts: 'Articles :', missingCostRows: 'Lignes sans coût :', droppedRows: 'Lignes supprimées :', sheetsChecked: 'Feuilles vérifiées :', rule: 'Règle : invalide si ratio critique manquant > 20%.',
@@ -74,7 +102,7 @@ export function DatasetPage() {
     importPotential: 'Import Full Potential Consumption file', potentialFormats: 'Excel workbook with client tabs and cached theoretical values.',
     importing: 'Importing…', importFile: 'Import File', continueImport: 'Continue import',
     noShipped: 'No ShippedSO dataset loaded yet.', noPotential: 'No potential workbook loaded yet.', loadedAt: 'Loaded at:', rows: 'Rows:', dateRange: 'Date range:',
-    sheetsExtracted: 'Sheets extracted:', validationRows: 'Validation rows:', invalidSheets: 'Invalid sheets:', openGenerated: 'Open generated tables',
+    sheetsExtracted: 'Sheets extracted:', validationRows: 'Validation rows:', invalidSheets: 'Invalid sheets:', openGenerated: 'Open generated tables', importedFiles: 'Imported files:', territory: 'Territory',
     qualityShipped: 'Data quality summary — ShippedSO', qualityPotential: 'Data quality summary — Full Potential Consumption',
     importShippedToSee: 'Import a ShippedSO file to view quality indicators.', importPotentialToSee: 'Import the potential workbook to view validation.',
     customers: 'Customers:', parts: 'Parts:', missingCostRows: 'Missing cost rows:', droppedRows: 'Dropped rows:', sheetsChecked: 'Sheets checked:', rule: 'Rule: invalid if missing critical ratio > 20%.',
@@ -146,14 +174,28 @@ export function DatasetPage() {
   };
 
   const onPotentialFile = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(event.target.files ?? []);
+    if (!files.length) return;
     setIsImportingPotential(true);
-    setStatusPotential({ phase: 'reading', message: t.readingWorkbook, progress: 0.2, startedAt: Date.now() });
+    let mergedFiles = [...potentialFiles];
     try {
-      const extracted = await extractPotentialWorkbook(file);
+      for (let index = 0; index < files.length; index += 1) {
+        const file = files[index];
+        const ratio = index / Math.max(files.length, 1);
+        setStatusPotential({ phase: 'reading', message: `${t.readingWorkbook} (${index + 1}/${files.length}) - ${file.name}`, progress: Math.min(0.8, 0.1 + ratio * 0.6), startedAt: Date.now() });
+        const extracted = await extractPotentialWorkbook(file);
+        const importedFile: PotentialStoredFile = {
+          ...extracted,
+          loadedAt: new Date().toISOString(),
+          sourceFileName: file.name,
+          territoryGroup: detectTerritoryGroup(file.name)
+        };
+        mergedFiles = [...mergedFiles.filter((entry) => entry.sourceFileName !== importedFile.sourceFileName), importedFile];
+      }
       setStatusPotential({ phase: 'caching', message: t.preparingTables, progress: 0.9, startedAt: Date.now() });
-      setPageState('potential', { ...extracted, loadedAt: new Date().toISOString(), sourceFileName: file.name });
+      const potentialPayload = { files: mergedFiles, loadedAt: new Date().toISOString() };
+      setPageState('potential', potentialPayload);
+      await savePotentialState(potentialPayload);
       setStatusPotential({ phase: 'done', message: t.workbookOk, progress: 1, startedAt: Date.now() });
       setToast({ tone: 'success', text: t.potentialImported });
       setTimeout(() => setStatusPotential({ phase: 'idle', message: '', progress: 0, startedAt: 0 }), 900);
@@ -168,24 +210,34 @@ export function DatasetPage() {
 
   const clearLocalDataset = async () => {
     await clearDatasetPackage();
+    await clearPotentialState();
     await dropAllTables();
     setDataset(null);
     setPageState('potential', {});
+    setPageState('potentialView', {});
     setToast({ tone: 'success', text: t.localCleared });
   };
 
   const potentialSummary = useMemo(() => {
-    const summaryRows = (potentialState.summaryTable as unknown[] | undefined)?.length ?? 0;
-    const validationRows = (potentialState.validationReport as unknown[] | undefined)?.length ?? 0;
-    const invalidRows = ((potentialState.validationReport as Record<string, unknown>[] | undefined) ?? []).filter((r) => !Boolean(r.IsValid)).length;
-    return { summaryRows, validationRows, invalidRows };
-  }, [potentialState]);
+    const summaryRows = potentialFiles.reduce((acc, file) => acc + file.summaryTable.length, 0);
+    const validationRows = potentialFiles.reduce((acc, file) => acc + file.validationReport.length, 0);
+    const invalidRows = potentialFiles.reduce((acc, file) => acc + file.validationReport.filter((r) => !Boolean(r.IsValid)).length, 0);
+    const fileRows = potentialFiles.map((file) => ({
+      fileName: file.sourceFileName,
+      loadedAt: file.loadedAt,
+      territoryGroup: file.territoryGroup,
+      summaryRows: file.summaryTable.length,
+      validationRows: file.validationReport.length,
+      invalidRows: file.validationReport.filter((r) => !Boolean(r.IsValid)).length
+    }));
+    return { summaryRows, validationRows, invalidRows, fileRows };
+  }, [potentialFiles]);
 
   return <div className="space-y-4">
     <PageHeader title={t.pageTitle} subtitle={t.pageSubtitle} actions={<button className="card px-3 py-2" onClick={clearLocalDataset}>{t.clearDataset}</button>} />
 
     <input ref={fileRef} type="file" className="hidden" accept=".xlsx,.xlsm,.csv" onChange={onMainFile} />
-    <input ref={potentialRef} type="file" className="hidden" accept=".xlsx,.xlsm" onChange={onPotentialFile} />
+    <input ref={potentialRef} type="file" className="hidden" accept=".xlsx,.xlsm" multiple onChange={onPotentialFile} />
 
     <div className="grid lg:grid-cols-2 gap-4">
       <section className="card p-6 text-center">
@@ -213,7 +265,18 @@ export function DatasetPage() {
       </section>
       <section className="card p-4">
         <h3 className="font-semibold mb-2">{t.importStatus} Full Potential Consumption</h3>
-        {!potentialSummary.summaryRows ? <p className="text-sm text-[var(--text-muted)]">{t.noPotential}</p> : <div className="space-y-1 text-sm"><p>{t.sheetsExtracted} <span className="text-[var(--text-muted)]">{potentialSummary.summaryRows.toLocaleString()}</span></p><p>{t.validationRows} <span className="text-[var(--text-muted)]">{potentialSummary.validationRows.toLocaleString()}</span></p><p>{t.invalidSheets} <span className="text-[var(--text-muted)]">{potentialSummary.invalidRows.toLocaleString()}</span></p><button className="card px-3 py-1 mt-2" onClick={() => navigate('/potential-tables')}>{t.openGenerated}</button></div>}
+        {!potentialSummary.summaryRows ? <p className="text-sm text-[var(--text-muted)]">{t.noPotential}</p> : <div className="space-y-2 text-sm">
+          <p>{t.sheetsExtracted} <span className="text-[var(--text-muted)]">{potentialSummary.summaryRows.toLocaleString()}</span></p>
+          <p>{t.validationRows} <span className="text-[var(--text-muted)]">{potentialSummary.validationRows.toLocaleString()}</span></p>
+          <p>{t.invalidSheets} <span className="text-[var(--text-muted)]">{potentialSummary.invalidRows.toLocaleString()}</span></p>
+          <div>
+            <p className="mb-1">{t.importedFiles}</p>
+            <div className="space-y-1">
+              {potentialSummary.fileRows.map((file) => <div key={file.fileName} className="text-xs text-[var(--text-muted)]">{file.fileName} - {t.territory}: {territoryGroupLabel(file.territoryGroup, uiLang)}</div>)}
+            </div>
+          </div>
+          <button className="card px-3 py-1 mt-2" onClick={() => navigate('/potential-tables')}>{t.openGenerated}</button>
+        </div>}
       </section>
     </div>
 
@@ -224,7 +287,14 @@ export function DatasetPage() {
       </section>
       <section className="card p-4">
         <h3 className="font-semibold mb-2">{t.qualityPotential}</h3>
-        {!potentialSummary.validationRows ? <p className="text-sm text-[var(--text-muted)]">{t.importPotentialToSee}</p> : <div className="space-y-1 text-sm"><p>{t.sheetsChecked} <span className="text-[var(--text-muted)]">{potentialSummary.validationRows.toLocaleString()}</span></p><p>{t.invalidSheets} <span className="text-[var(--text-muted)]">{potentialSummary.invalidRows.toLocaleString()}</span></p><p>{t.rule}</p></div>}
+        {!potentialSummary.validationRows ? <p className="text-sm text-[var(--text-muted)]">{t.importPotentialToSee}</p> : <div className="space-y-2 text-sm">
+          <p>{t.sheetsChecked} <span className="text-[var(--text-muted)]">{potentialSummary.validationRows.toLocaleString()}</span></p>
+          <p>{t.invalidSheets} <span className="text-[var(--text-muted)]">{potentialSummary.invalidRows.toLocaleString()}</span></p>
+          <p>{t.rule}</p>
+          <div className="space-y-1">
+            {potentialSummary.fileRows.map((file) => <div key={`${file.fileName}-quality`} className="text-xs text-[var(--text-muted)]">{file.fileName} - {territoryGroupLabel(file.territoryGroup, uiLang)} - {t.sheetsChecked} {file.validationRows.toLocaleString()} - {t.invalidSheets} {file.invalidRows.toLocaleString()}</div>)}
+          </div>
+        </div>}
       </section>
     </div>
 
