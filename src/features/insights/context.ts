@@ -6,7 +6,7 @@ import {
   type Filters
 } from '@/data/queries';
 import { detectTerritoryGroup } from '@/data/potentialTerritories';
-import type { InsightsContextPack, InsightsPotentialFileSummary, InsightsPotentialViewState } from '@/features/insights/chatTypes';
+import type { InsightsContextPack, InsightsPotentialFileSummary, InsightsPotentialViewState, InsightsTopItemsSignal } from '@/features/insights/chatTypes';
 import { monthEnd, monthStart } from '@/utils/monthRange';
 
 type DatasetMeta = {
@@ -98,6 +98,27 @@ const buildPricingComparatorBaseFiltersFromState = (stateRaw: Record<string, unk
   return filters;
 };
 
+const buildTopItemsFiltersFromState = (stateRaw: Record<string, unknown> | undefined): Filters => {
+  const state = stateRaw ?? {};
+  const periodMode = String(state.periodMode ?? 'all');
+  const fromMonth = String(state.fromMonth ?? '');
+  const toMonth = String(state.toMonth ?? '');
+  const filters: Filters = {
+    customers: toStringArray(state.selectedCustomers).length ? toStringArray(state.selectedCustomers) : undefined,
+    countries: toStringArray(state.selectedCountries).length ? toStringArray(state.selectedCountries) : undefined,
+    parts: toStringArray(state.selectedParts).length ? toStringArray(state.selectedParts) : undefined,
+    prodGroups: toStringArray(state.selectedProdGroups).length ? toStringArray(state.selectedProdGroups) : undefined,
+    searchLineDesc: state.searchText ? String(state.searchText) : undefined
+  };
+  if (periodMode === 'after') filters.startDate = monthStart(fromMonth) || undefined;
+  if (periodMode === 'before') filters.endDate = monthEnd(toMonth) || undefined;
+  if (periodMode === 'between') {
+    filters.startDate = monthStart(fromMonth) || undefined;
+    filters.endDate = monthEnd(toMonth) || undefined;
+  }
+  return filters;
+};
+
 const applyComparatorFilter = (filters: Filters, compareBy: string, value: string): Filters => {
   if (compareBy === 'country') return { ...filters, countries: [value] };
   if (compareBy === 'customer') return { ...filters, customers: [value] };
@@ -130,6 +151,96 @@ const rows = (value: unknown) => Array.isArray(value)
   : [];
 
 const coverageFromTotals = (theoretical: number, actual: number) => (theoretical > 0 ? clampPct((actual / theoretical) * 100) : (actual > 0 ? 100 : null));
+
+const buildTopItemsSignalFromState = (stateRaw: Record<string, unknown> | undefined): InsightsTopItemsSignal => {
+  const state = stateRaw ?? {};
+  const summary = state.insightsSummary && typeof state.insightsSummary === 'object'
+    ? state.insightsSummary as Record<string, unknown>
+    : {};
+  const summaryFilters = summary.filters && typeof summary.filters === 'object'
+    ? summary.filters as Record<string, unknown>
+    : {};
+  const summaryWeights = summary.weights && typeof summary.weights === 'object'
+    ? summary.weights as Record<string, unknown>
+    : {};
+  const mapTopItemsRow = (row: Record<string, unknown>) => ({
+    rank: num(row.rank),
+    part_num: String(row.part_num ?? ''),
+    line_desc_short: String(row.line_desc_short ?? ''),
+    cust_id: String(row.cust_id ?? ''),
+    cust_name: String(row.cust_name ?? ''),
+    country: String(row.country ?? ''),
+    prod_group: String(row.prod_group ?? ''),
+    revenue: num(row.revenue),
+    orders: num(row.orders),
+    profit: num(row.profit),
+    margin: num(row.margin),
+    revenue_score: num(row.revenue_score),
+    orders_score: num(row.orders_score),
+    profit_score: num(row.profit_score),
+    margin_score: num(row.margin_score),
+    trend_score: num(row.trend_score),
+    active_score: num(row.active_score),
+    final_score: num(row.final_score)
+  });
+  const topRows = Array.isArray(summary.topRows)
+    ? summary.topRows
+      .filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === 'object')
+      .slice(0, 8)
+      .map(mapTopItemsRow)
+    : [];
+  const nextRows = Array.isArray(summary.nextRows)
+    ? summary.nextRows
+      .filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === 'object')
+      .slice(0, 5)
+      .map(mapTopItemsRow)
+    : [];
+  const summaryCutoff = summary.cutoff && typeof summary.cutoff === 'object'
+    ? summary.cutoff as Record<string, unknown>
+    : null;
+
+  return {
+    topN: num(summary.topN ?? state.topN),
+    displayedRows: num(summary.displayedRows),
+    rankedParts: num(summary.rankedParts),
+    tableMode: String(summary.tableMode ?? state.tableMode ?? 'compact'),
+    filters: {
+      periodMode: String(summaryFilters.periodMode ?? state.periodMode ?? 'all'),
+      fromMonth: String(summaryFilters.fromMonth ?? state.fromMonth ?? ''),
+      toMonth: String(summaryFilters.toMonth ?? state.toMonth ?? ''),
+      trendScoreFromMonth: String(summaryFilters.trendScoreFromMonth ?? state.trendScoreFromMonth ?? ''),
+      minimumRevenue: num(summaryFilters.minimumRevenue ?? state.minimumRevenue),
+      minimumOrders: num(summaryFilters.minimumOrders ?? state.minimumOrders),
+      minimumThresholdMode: String(summaryFilters.minimumThresholdMode ?? state.minimumThresholdMode ?? 'and'),
+      searchLineDesc: String(summaryFilters.searchLineDesc ?? state.searchText ?? ''),
+      customers: toStringArray(summaryFilters.customers ?? state.selectedCustomers),
+      countries: toStringArray(summaryFilters.countries ?? state.selectedCountries),
+      parts: toStringArray(summaryFilters.parts ?? state.selectedParts),
+      prodGroups: toStringArray(summaryFilters.prodGroups ?? state.selectedProdGroups)
+    },
+    weights: {
+      revenue: num(summaryWeights.revenue ?? (state.weights as Record<string, unknown> | undefined)?.revenue),
+      orders: num(summaryWeights.orders ?? (state.weights as Record<string, unknown> | undefined)?.orders),
+      profit: num(summaryWeights.profit ?? (state.weights as Record<string, unknown> | undefined)?.profit),
+      margin: num(summaryWeights.margin ?? (state.weights as Record<string, unknown> | undefined)?.margin),
+      trend: num(summaryWeights.trend ?? (state.weights as Record<string, unknown> | undefined)?.trend),
+      active: num(summaryWeights.active ?? (state.weights as Record<string, unknown> | undefined)?.active)
+    },
+    topRows,
+    nextRows,
+    cutoff: summaryCutoff
+      ? {
+        visibleRank: num(summaryCutoff.visibleRank),
+        visiblePart: String(summaryCutoff.visiblePart ?? ''),
+        visibleFinalScore: num(summaryCutoff.visibleFinalScore),
+        nextRank: num(summaryCutoff.nextRank),
+        nextPart: String(summaryCutoff.nextPart ?? ''),
+        nextFinalScore: num(summaryCutoff.nextFinalScore),
+        finalScoreGap: num(summaryCutoff.finalScoreGap)
+      }
+      : null
+  };
+};
 
 const buildPotentialSignals = (
   potentialFiles: PotentialStoredFile[],
@@ -305,13 +416,15 @@ export async function buildInsightsContextPack(args: {
   potentialRaw: Record<string, unknown> | undefined;
   potentialViewRaw: Record<string, unknown> | undefined;
   pricingViewRaw: Record<string, unknown> | undefined;
+  topItemsViewRaw: Record<string, unknown> | undefined;
 }): Promise<InsightsContextPack> {
   const isPricingComparatorRoute = args.route.startsWith('/pricing-comparator') || args.route.startsWith('/pricing/comparator');
   const isPricingRoute = args.route.startsWith('/pricing') && !isPricingComparatorRoute;
+  const isTopItemsRoute = args.route.startsWith('/top-items');
   const isPotentialRoute = args.route.startsWith('/potential-tables') || args.route.startsWith('/insights') || args.route.startsWith('/tips');
   const effectiveFilters = isPricingComparatorRoute
     ? buildPricingComparatorBaseFiltersFromState(args.pricingViewRaw)
-    : (isPricingRoute ? buildPricingFiltersFromState(args.pricingViewRaw) : (isPotentialRoute ? {} : args.globalFilters));
+    : (isPricingRoute ? buildPricingFiltersFromState(args.pricingViewRaw) : (isTopItemsRoute ? buildTopItemsFiltersFromState(args.topItemsViewRaw) : (isPotentialRoute ? {} : args.globalFilters)));
 
   const potentialFiles = parsePotentialFiles(args.potentialRaw);
   const files = isPotentialRoute ? summarizePotentialFiles(potentialFiles) : [];
@@ -379,6 +492,8 @@ export async function buildInsightsContextPack(args: {
     }
   } else if (isPotentialRoute) {
     signals.potential = buildPotentialSignals(potentialFiles, activeView);
+  } else if (isTopItemsRoute) {
+    signals.topItems = buildTopItemsSignalFromState(args.topItemsViewRaw);
   } else {
     const [kpiResult, prodGroupResult] = await Promise.allSettled([
       getKPIs(effectiveFilters),
@@ -397,8 +512,8 @@ export async function buildInsightsContextPack(args: {
     language: args.language,
     filters: effectiveFilters,
     scope: {
-      page: isPricingComparatorRoute ? 'pricing-comparator' : (isPricingRoute ? 'pricing' : (args.route.startsWith('/potential-tables') ? 'potential-tables' : 'general')),
-      filterSource: isPricingComparatorRoute ? 'pricing-comparator' : (isPricingRoute ? 'pricing' : (isPotentialRoute ? 'potential' : 'global')),
+      page: isPricingComparatorRoute ? 'pricing-comparator' : (isPricingRoute ? 'pricing' : (isTopItemsRoute ? 'top-items' : (args.route.startsWith('/potential-tables') ? 'potential-tables' : 'general'))),
+      filterSource: isPricingComparatorRoute ? 'pricing-comparator' : (isPricingRoute ? 'pricing' : (isTopItemsRoute ? 'top-items' : (isPotentialRoute ? 'potential' : 'global'))),
       pageState: isPricingComparatorRoute
         ? {
           compareBy: String(args.pricingViewRaw?.comparatorCompareBy ?? 'country'),
@@ -409,13 +524,29 @@ export async function buildInsightsContextPack(args: {
           periodMode: String(args.pricingViewRaw?.periodMode ?? 'all'),
           fromMonth: String(args.pricingViewRaw?.fromMonth ?? ''),
           toMonth: String(args.pricingViewRaw?.toMonth ?? '')
+        } : (isTopItemsRoute ? {
+          topN: num(args.topItemsViewRaw?.topN),
+          graphicsTopN: num(args.topItemsViewRaw?.graphicsTopN),
+          tableMode: String(args.topItemsViewRaw?.tableMode ?? 'compact'),
+          periodMode: String(args.topItemsViewRaw?.periodMode ?? 'all'),
+          fromMonth: String(args.topItemsViewRaw?.fromMonth ?? ''),
+          toMonth: String(args.topItemsViewRaw?.toMonth ?? ''),
+          trendScoreFromMonth: String(args.topItemsViewRaw?.trendScoreFromMonth ?? ''),
+          minimumRevenue: num(args.topItemsViewRaw?.minimumRevenue),
+          minimumOrders: num(args.topItemsViewRaw?.minimumOrders),
+          minimumThresholdMode: String(args.topItemsViewRaw?.minimumThresholdMode ?? 'and'),
+          searchText: String(args.topItemsViewRaw?.searchText ?? ''),
+          selectedCustomers: toStringArray(args.topItemsViewRaw?.selectedCustomers),
+          selectedCountries: toStringArray(args.topItemsViewRaw?.selectedCountries),
+          selectedParts: toStringArray(args.topItemsViewRaw?.selectedParts),
+          selectedProdGroups: toStringArray(args.topItemsViewRaw?.selectedProdGroups)
         } : (isPotentialRoute ? {
           selectedTerritory: activeView.selectedTerritory ?? null,
           selectedCustomers: activeView.selectedCustomers ?? [],
           equipmentCustomerFilter: activeView.equipmentCustomerFilter ?? '',
           equipmentTypeFilter: activeView.equipmentTypeFilter ?? '',
           equipmentItemFilter: activeView.equipmentItemFilter ?? ''
-        } : undefined))
+        } : undefined)))
     },
     dataset: {
       loaded: !!args.datasetMeta,

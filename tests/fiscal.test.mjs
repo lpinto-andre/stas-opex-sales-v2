@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const toFiscalYear = (date) => (date.getMonth() + 1 >= 5 ? date.getFullYear() + 1 : date.getFullYear());
+const toFiscalYear = (date) => (date.getUTCMonth() + 1 >= 5 ? date.getUTCFullYear() + 1 : date.getUTCFullYear());
 
 test('Apr stays in same FY', () => {
   assert.equal(toFiscalYear(new Date('2025-04-30')), 2025);

@@ -10,8 +10,8 @@ import { useAppStore } from '@/state/store';
 const nav = ['/dataset', '/explorer', '/database', '/group-by', '/pricing', '/pricing-comparator', '/potential-tables', '/top-items', '/labels', '/tips'];
 
 const navLabel: Record<'fr' | 'en', Record<string, string>> = {
-  en: { '/dataset': 'Dataset Manager', '/explorer': 'Dashboard', '/group-by': 'Group By', '/database': 'Database', '/pricing': 'Pricing', '/pricing-comparator': 'Comparator', '/potential-tables': 'Potential', '/top-items': 'Top Items', '/labels': 'Labels', '/tips': 'Tips' },
-  fr: { '/dataset': 'Gestion Données', '/explorer': 'Tableau de bord', '/group-by': 'Groupes', '/database': 'Base de données', '/pricing': 'Prix', '/pricing-comparator': 'Comparateur', '/potential-tables': 'Potentiel', '/top-items': 'Top Articles', '/labels': 'Étiquettes', '/tips': 'Conseils' }
+  en: { '/dataset': 'Dataset Manager', '/explorer': 'Dashboard', '/group-by': 'Group By', '/database': 'Database', '/pricing': 'Pricing', '/pricing-comparator': 'Comparator', '/potential-tables': 'Potential', '/top-items': 'Top Items', '/labels': 'Labels (Beta)', '/tips': 'Tips' },
+  fr: { '/dataset': 'Gestion Données', '/explorer': 'Tableau de bord', '/group-by': 'Groupes', '/database': 'Base de données', '/pricing': 'Prix', '/pricing-comparator': 'Comparateur', '/potential-tables': 'Potentiel', '/top-items': 'Top Articles', '/labels': 'Étiquettes (Bêta)', '/tips': 'Conseils' }
 };
 
 export function AppShell({ children }: { children: ReactNode }) {

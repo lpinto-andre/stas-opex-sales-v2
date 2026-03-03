@@ -21,13 +21,74 @@ export type InsightsPotentialViewState = {
   equipmentItemFilter?: string;
 };
 
+export type InsightsTopItemsSignal = {
+  topN: number;
+  displayedRows: number;
+  rankedParts: number;
+  tableMode: string;
+  filters: {
+    periodMode: string;
+    fromMonth: string;
+    toMonth: string;
+    trendScoreFromMonth: string;
+    minimumRevenue: number;
+    minimumOrders: number;
+    minimumThresholdMode: string;
+    searchLineDesc: string;
+    customers: string[];
+    countries: string[];
+    parts: string[];
+    prodGroups: string[];
+  };
+  weights: {
+    revenue: number;
+    orders: number;
+    profit: number;
+    margin: number;
+    trend: number;
+    active: number;
+  };
+  topRows: InsightsTopItemsRow[];
+  nextRows: InsightsTopItemsRow[];
+  cutoff: {
+    visibleRank: number;
+    visiblePart: string;
+    visibleFinalScore: number;
+    nextRank: number;
+    nextPart: string;
+    nextFinalScore: number;
+    finalScoreGap: number;
+  } | null;
+};
+
+export type InsightsTopItemsRow = {
+  rank: number;
+  part_num: string;
+  line_desc_short: string;
+  cust_id: string;
+  cust_name: string;
+  country: string;
+  prod_group: string;
+  revenue: number;
+  orders: number;
+  profit: number;
+  margin: number;
+  revenue_score: number;
+  orders_score: number;
+  profit_score: number;
+  margin_score: number;
+  trend_score: number;
+  active_score: number;
+  final_score: number;
+};
+
 export type InsightsContextPack = {
   route: string;
   language: 'fr' | 'en';
   filters: Filters;
   scope: {
     page: string;
-    filterSource: 'global' | 'pricing' | 'pricing-comparator' | 'potential';
+    filterSource: 'global' | 'pricing' | 'pricing-comparator' | 'potential' | 'top-items';
     pageState?: Record<string, unknown>;
   };
   dataset: {
@@ -71,6 +132,7 @@ export type InsightsContextPack = {
       exceptionsCount: number;
       naRowsCount: number;
     };
+    topItems?: InsightsTopItemsSignal;
   };
 };
 

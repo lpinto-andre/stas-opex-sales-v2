@@ -126,6 +126,13 @@ body {
   box-shadow: var(--insights-panel-shadow);
   backdrop-filter: blur(4px);
 }
+.insights-feature-card {
+  background: var(--insights-fab-bg);
+  border: 1px solid var(--insights-fab-border);
+  border-radius: 18px;
+  color: var(--insights-fab-text);
+  box-shadow: var(--insights-fab-shadow);
+}
 .insights-compose-input {
   background: var(--insights-input-bg);
   border: 1px solid var(--insights-input-border);
