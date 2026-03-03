@@ -10,6 +10,7 @@ const SESSION_KEY = 'stas-insights-session-id';
 const PRICING_ROUTE = '/pricing';
 const PRICING_COMPARATOR_ROUTE = '/pricing-comparator';
 const PRICING_COMPARATOR_ALIAS_ROUTE = '/pricing/comparator';
+const TOP_ITEMS_ROUTE = '/top-items';
 const POTENTIAL_ROUTE = '/potential-tables';
 const INSIGHTS_ROUTE = '/insights';
 const TIPS_ROUTE = '/tips';
@@ -37,13 +38,16 @@ const isPricingComparatorRoute = (route: string) =>
 
 const isPricingRoute = (route: string) => route.startsWith(PRICING_ROUTE) && !isPricingComparatorRoute(route);
 
+const isTopItemsRoute = (route: string) => route.startsWith(TOP_ITEMS_ROUTE);
+
 const isPotentialRoute = (route: string) => route.startsWith(POTENTIAL_ROUTE);
 
 const scopedStateForContext = (
   route: string,
   globalFilters: Record<string, unknown>,
   pricingViewRaw: Record<string, unknown> | undefined,
-  potentialViewRaw: Record<string, unknown> | undefined
+  potentialViewRaw: Record<string, unknown> | undefined,
+  topItemsViewRaw: Record<string, unknown> | undefined
 ) => {
   if (isPricingComparatorRoute(route)) {
     return pickKnown(pricingViewRaw, [
@@ -73,6 +77,25 @@ const scopedStateForContext = (
       'selectedClasses'
     ]);
   }
+  if (isTopItemsRoute(route)) {
+    return pickKnown(topItemsViewRaw, [
+      'topN',
+      'tableMode',
+      'periodMode',
+      'fromMonth',
+      'toMonth',
+      'trendScoreFromMonth',
+      'minimumRevenue',
+      'minimumOrders',
+      'minimumThresholdMode',
+      'searchText',
+      'selectedCustomers',
+      'selectedCountries',
+      'selectedParts',
+      'selectedProdGroups',
+      'weights'
+    ]);
+  }
   if (isPotentialRoute(route)) {
     return pickKnown(potentialViewRaw, [
       'selectedTerritory',
@@ -99,7 +122,8 @@ const activeContextChips = (
   route: string,
   globalFilters: Record<string, unknown>,
   pricingViewRaw: Record<string, unknown> | undefined,
-  potentialViewRaw: Record<string, unknown> | undefined
+  potentialViewRaw: Record<string, unknown> | undefined,
+  topItemsViewRaw: Record<string, unknown> | undefined
 ) => {
   if (isPricingComparatorRoute(route)) {
     const compareBy = String(pricingViewRaw?.comparatorCompareBy ?? 'country');
@@ -132,6 +156,34 @@ const activeContextChips = (
       `groups: ${selectedGroups.length}`
     ];
   }
+  if (isTopItemsRoute(route)) {
+    const selectedCustomers = toTextArray(topItemsViewRaw?.selectedCustomers);
+    const selectedCountries = toTextArray(topItemsViewRaw?.selectedCountries);
+    const selectedParts = toTextArray(topItemsViewRaw?.selectedParts);
+    const selectedGroups = toTextArray(topItemsViewRaw?.selectedProdGroups);
+    const periodMode = String(topItemsViewRaw?.periodMode ?? 'all');
+    const fromMonth = String(topItemsViewRaw?.fromMonth ?? '');
+    const toMonth = String(topItemsViewRaw?.toMonth ?? '');
+    const trendScoreFromMonth = String(topItemsViewRaw?.trendScoreFromMonth ?? '');
+    const minimumRevenue = Number(topItemsViewRaw?.minimumRevenue ?? 0);
+    const minimumOrders = Number(topItemsViewRaw?.minimumOrders ?? 0);
+    const minimumThresholdMode = String(topItemsViewRaw?.minimumThresholdMode ?? 'and');
+    const topN = Number(topItemsViewRaw?.topN ?? 0);
+    const periodRange = [fromMonth, toMonth].filter(Boolean).join(' to ');
+    return [
+      TOP_ITEMS_ROUTE,
+      `customers: ${selectedCustomers.length}`,
+      `countries: ${selectedCountries.length}`,
+      `parts: ${selectedParts.length}`,
+      `groups: ${selectedGroups.length}`,
+      periodRange ? `period: ${periodMode} (${periodRange})` : `period: ${periodMode}`,
+      trendScoreFromMonth ? `trend after: ${trendScoreFromMonth}` : null,
+      minimumRevenue > 0 ? `min revenue: ${minimumRevenue}` : null,
+      minimumOrders > 0 ? `min orders: ${minimumOrders}` : null,
+      minimumRevenue > 0 && minimumOrders > 0 ? `thresholds: ${minimumThresholdMode}` : null,
+      topN ? `top N: ${topN}` : null
+    ].filter(Boolean) as string[];
+  }
   if (isPotentialRoute(route)) {
     const territory = String(potentialViewRaw?.selectedTerritory ?? '');
     const customers = toTextArray(potentialViewRaw?.selectedCustomers);
@@ -159,6 +211,7 @@ export function InsightsChatDock() {
   const potentialRaw = useAppStore((state) => state.pageState.potential as Record<string, unknown> | undefined);
   const potentialViewRaw = useAppStore((state) => state.pageState.potentialView as Record<string, unknown> | undefined);
   const pricingViewRaw = useAppStore((state) => state.pageState.pricing as Record<string, unknown> | undefined);
+  const topItemsViewRaw = useAppStore((state) => state.pageState['top-items'] as Record<string, unknown> | undefined);
   const sessionId = useMemo(() => getSessionId(), []);
 
   const [open, setOpen] = useState(false);
@@ -168,12 +221,12 @@ export function InsightsChatDock() {
   const previousContextKeyRef = useRef('');
 
   const contextScopeState = useMemo(
-    () => scopedStateForContext(location.pathname, globalFilters as Record<string, unknown>, pricingViewRaw, potentialViewRaw),
-    [location.pathname, globalFilters, pricingViewRaw, potentialViewRaw]
+    () => scopedStateForContext(location.pathname, globalFilters as Record<string, unknown>, pricingViewRaw, potentialViewRaw, topItemsViewRaw),
+    [location.pathname, globalFilters, pricingViewRaw, potentialViewRaw, topItemsViewRaw]
   );
   const contextChips = useMemo(
-    () => activeContextChips(location.pathname, globalFilters as Record<string, unknown>, pricingViewRaw, potentialViewRaw),
-    [location.pathname, globalFilters, pricingViewRaw, potentialViewRaw]
+    () => activeContextChips(location.pathname, globalFilters as Record<string, unknown>, pricingViewRaw, potentialViewRaw, topItemsViewRaw),
+    [location.pathname, globalFilters, pricingViewRaw, potentialViewRaw, topItemsViewRaw]
   );
   const contextKey = useMemo(() => `${location.pathname}|${JSON.stringify(contextScopeState)}`, [location.pathname, contextScopeState]);
   const messages = conversations[contextKey] ?? [initialAssistantMessage(uiLang, location.pathname)];
@@ -244,6 +297,19 @@ export function InsightsChatDock() {
           'Which table confirms theoretical vs real consumption values?'
         ];
     }
+    if (isTopItemsRoute(location.pathname)) {
+      return uiLang === 'fr'
+        ? [
+          'Explique pourquoi les top items visibles remontent avec ces filtres et ces pondÃ©rations.',
+          'Quels facteurs dominent le classement actuel : revenue, orders, profit, margin, trend ou active ?',
+          'Que disent les premiers items affichÃ©s sur ce client ou ce scope ?'
+        ]
+        : [
+          'Explain why the visible top items surface with these filters and weights.',
+          'Which factors dominate the current ranking: revenue, orders, profit, margin, trend, or active?',
+          'What do the top displayed items suggest about this customer or scope?'
+        ];
+    }
     return uiLang === 'fr'
       ? [
         'Sur cette page, quel filtre appliquer en premier sur le dataset ?',
@@ -303,7 +369,8 @@ export function InsightsChatDock() {
         datasetMeta,
         potentialRaw,
         potentialViewRaw,
-        pricingViewRaw
+        pricingViewRaw,
+        topItemsViewRaw
       });
       const reply = await requestInsightsReply({ messages: [nextUser], context, sessionId });
       const answerWithTips = reply.tips.length

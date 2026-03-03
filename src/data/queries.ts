@@ -28,8 +28,16 @@ export const buildWhereClause = (f: Filters, dateColumn = 'invoice_date', lineDe
   return clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
 };
 
+export type TrendV2MonthlyPoint = {
+  partNum: string;
+  month: string;
+  revenue: number;
+  orders: number;
+};
+
 const invoiceMonthWhere = (filters: Filters) => buildWhereClause(filters, 'invoice_month', 'line_desc_full');
-const orderMonthWhere = (filters: Filters) => buildWhereClause(filters, 'order_line_first_month', 'line_desc_full');
+const orderStartDateWhere = (filters: Filters) => buildWhereClause(filters, 'order_line_first_invoice_date');
+const partOrderStartWhere = (filters: Filters) => buildWhereClause({ ...filters, searchLineDesc: undefined }, 'order_line_first_month', 'part_num');
 
 export async function getKPIs(filters: Filters) {
   const rows = await queryRows<Record<string, number>>(`
@@ -48,24 +56,72 @@ export async function getKPIs(filters: Filters) {
 }
 
 
-export const getOrdersByMonth = (filters: Filters) => queryRows<{ month: string; orders: number }>(`SELECT invoice_month AS month, COUNT(DISTINCT order_line_id) AS orders FROM pdr_enriched ${buildWhereClause(filters, 'order_line_first_invoice_date')} GROUP BY 1 ORDER BY 1`);
-export const getOrdersByProdGroup = (filters: Filters) => queryRows<{ prod_group: string; orders: number }>(`SELECT prod_group, SUM(order_lines) AS orders FROM pdr_order_month_metrics ${orderMonthWhere(filters)} GROUP BY 1 ORDER BY 2 DESC LIMIT 10`);
+export const getOrdersByMonth = (filters: Filters) => queryRows<{ month: string; orders: number }>(`SELECT strftime(order_line_first_invoice_date, '%Y-%m') AS month, COUNT(DISTINCT order_line_id) AS orders FROM pdr_enriched ${buildWhereClause(filters, 'order_line_first_invoice_date')} GROUP BY 1 ORDER BY 1`);
+export const getOrdersByProdGroup = (filters: Filters) => queryRows<{ prod_group: string; orders: number }>(filters.searchLineDesc
+  ? `SELECT prod_group, COUNT(DISTINCT order_line_id) AS orders FROM pdr_enriched ${orderStartDateWhere(filters)} GROUP BY 1 ORDER BY 2 DESC LIMIT 10`
+  : `SELECT prod_group, SUM(order_lines) AS orders FROM pdr_part_order_start_metrics ${partOrderStartWhere(filters)} GROUP BY 1 ORDER BY 2 DESC LIMIT 10`);
+export const getTrendV2PartMonthlyMetrics = (filters: Filters) => {
+  return queryRows<TrendV2MonthlyPoint>(`
+    WITH revenue AS (
+      SELECT
+        invoice_month AS month,
+        part_num,
+        SUM(revenue_all) AS revenue
+      FROM pdr_invoice_month_metrics ${invoiceMonthWhere(filters)}
+      GROUP BY 1,2
+    ), order_starts AS (
+      ${filters.searchLineDesc
+        ? `SELECT
+          strftime(order_line_first_invoice_date, '%Y-%m') AS month,
+          part_num,
+          COUNT(DISTINCT order_line_id) AS orders
+        FROM pdr_enriched ${orderStartDateWhere(filters)}
+        GROUP BY 1,2`
+        : `SELECT
+          order_line_first_month AS month,
+          part_num,
+          SUM(order_lines) AS orders
+        FROM pdr_part_order_start_metrics ${partOrderStartWhere(filters)}
+        GROUP BY 1,2`}
+    ), combined AS (
+      SELECT month, part_num, revenue, 0 AS orders FROM revenue
+      UNION ALL
+      SELECT month, part_num, 0 AS revenue, orders FROM order_starts
+    )
+    SELECT
+      month,
+      part_num AS partNum,
+      SUM(revenue) AS revenue,
+      SUM(orders) AS orders
+    FROM combined
+    GROUP BY 1,2
+    ORDER BY 2,1
+  `);
+};
 
 const withParts = (filters: Filters, partNums: string[]): Filters => ({ ...filters, parts: partNums.length ? partNums : [''] });
 
 export const getRevenueByFYForParts = (filters: Filters, partNums: string[]) => queryRows<{ fy: number; revenue: number }>(`SELECT ${invoiceFyFromMonthExpr} AS fy, SUM(revenue_all) AS revenue FROM pdr_invoice_month_metrics ${invoiceMonthWhere(withParts(filters, partNums))} GROUP BY 1 ORDER BY 1`);
-export const getOrdersByFYForParts = (filters: Filters, partNums: string[]) => queryRows<{ fy: number; orders: number }>(`SELECT order_line_fy AS fy, SUM(order_lines) AS orders FROM pdr_order_month_metrics ${orderMonthWhere(withParts(filters, partNums))} GROUP BY 1 ORDER BY 1`);
+export const getOrdersByFYForParts = (filters: Filters, partNums: string[]) => queryRows<{ fy: number; orders: number }>(filters.searchLineDesc
+  ? `SELECT order_line_fy AS fy, COUNT(DISTINCT order_line_id) AS orders FROM pdr_enriched ${orderStartDateWhere(withParts(filters, partNums))} GROUP BY 1 ORDER BY 1`
+  : `SELECT order_line_fy AS fy, SUM(order_lines) AS orders FROM pdr_part_order_start_metrics ${partOrderStartWhere(withParts(filters, partNums))} GROUP BY 1 ORDER BY 1`);
 export const getRevenueByFYAndPartForParts = (filters: Filters, partNums: string[]) => queryRows<{ fy: number; part_num: string; revenue: number }>(`SELECT ${invoiceFyFromMonthExpr} AS fy, part_num, SUM(revenue_all) AS revenue FROM pdr_invoice_month_metrics ${invoiceMonthWhere(withParts(filters, partNums))} GROUP BY 1,2 ORDER BY 1,2`);
-export const getOrdersByFYAndPartForParts = (filters: Filters, partNums: string[]) => queryRows<{ fy: number; part_num: string; orders: number }>(`SELECT order_line_fy AS fy, part_num, SUM(order_lines) AS orders FROM pdr_order_month_metrics ${orderMonthWhere(withParts(filters, partNums))} GROUP BY 1,2 ORDER BY 1,2`);
+export const getOrdersByFYAndPartForParts = (filters: Filters, partNums: string[]) => queryRows<{ fy: number; part_num: string; orders: number }>(filters.searchLineDesc
+  ? `SELECT order_line_fy AS fy, part_num, COUNT(DISTINCT order_line_id) AS orders FROM pdr_enriched ${orderStartDateWhere(withParts(filters, partNums))} GROUP BY 1,2 ORDER BY 1,2`
+  : `SELECT order_line_fy AS fy, part_num, SUM(order_lines) AS orders FROM pdr_part_order_start_metrics ${partOrderStartWhere(withParts(filters, partNums))} GROUP BY 1,2 ORDER BY 1,2`);
 export const getRevenueByMonthForParts = (filters: Filters, partNums: string[]) => queryRows<{ month: string; revenue: number }>(`SELECT invoice_month AS month, SUM(revenue_all) AS revenue FROM pdr_invoice_month_metrics ${invoiceMonthWhere(withParts(filters, partNums))} GROUP BY 1 ORDER BY 1`);
-export const getOrdersByMonthForParts = (filters: Filters, partNums: string[]) => queryRows<{ month: string; orders: number }>(`SELECT invoice_month AS month, COUNT(DISTINCT order_line_id) AS orders FROM pdr_enriched ${buildWhereClause(withParts(filters, partNums), 'order_line_first_invoice_date')} GROUP BY 1 ORDER BY 1`);
+export const getOrdersByMonthForParts = (filters: Filters, partNums: string[]) => queryRows<{ month: string; orders: number }>(`SELECT strftime(order_line_first_invoice_date, '%Y-%m') AS month, COUNT(DISTINCT order_line_id) AS orders FROM pdr_enriched ${buildWhereClause(withParts(filters, partNums), 'order_line_first_invoice_date')} GROUP BY 1 ORDER BY 1`);
 export const getRevenueTotalsForParts = (filters: Filters, partNums: string[]) => queryRows<{ part_num: string; revenue: number }>(`SELECT part_num, SUM(revenue_all) AS revenue FROM pdr_invoice_month_metrics ${invoiceMonthWhere(withParts(filters, partNums))} GROUP BY 1 ORDER BY 2 DESC`);
-export const getOrderTotalsForParts = (filters: Filters, partNums: string[]) => queryRows<{ part_num: string; orders: number }>(`SELECT part_num, SUM(order_lines) AS orders FROM pdr_order_month_metrics ${orderMonthWhere(withParts(filters, partNums))} GROUP BY 1 ORDER BY 2 DESC`);
+export const getOrderTotalsForParts = (filters: Filters, partNums: string[]) => queryRows<{ part_num: string; orders: number }>(filters.searchLineDesc
+  ? `SELECT part_num, COUNT(DISTINCT order_line_id) AS orders FROM pdr_enriched ${orderStartDateWhere(withParts(filters, partNums))} GROUP BY 1 ORDER BY 2 DESC`
+  : `SELECT part_num, SUM(order_lines) AS orders FROM pdr_part_order_start_metrics ${partOrderStartWhere(withParts(filters, partNums))} GROUP BY 1 ORDER BY 2 DESC`);
 export const getRevenueByMonthAndPartForParts = (filters: Filters, partNums: string[]) => queryRows<{ month: string; part_num: string; revenue: number }>(`SELECT invoice_month AS month, part_num, SUM(revenue_all) AS revenue FROM pdr_invoice_month_metrics ${invoiceMonthWhere(withParts(filters, partNums))} GROUP BY 1,2 ORDER BY 1,2`);
-export const getOrdersByMonthAndPartForParts = (filters: Filters, partNums: string[]) => queryRows<{ month: string; part_num: string; orders: number }>(`SELECT invoice_month AS month, part_num, COUNT(DISTINCT order_line_id) AS orders FROM pdr_enriched ${buildWhereClause(withParts(filters, partNums), 'order_line_first_invoice_date')} GROUP BY 1,2 ORDER BY 1,2`);
+export const getOrdersByMonthAndPartForParts = (filters: Filters, partNums: string[]) => queryRows<{ month: string; part_num: string; orders: number }>(`SELECT strftime(order_line_first_invoice_date, '%Y-%m') AS month, part_num, COUNT(DISTINCT order_line_id) AS orders FROM pdr_enriched ${buildWhereClause(withParts(filters, partNums), 'order_line_first_invoice_date')} GROUP BY 1,2 ORDER BY 1,2`);
 export const getRevenueByMonth = (filters: Filters) => queryRows<{ month: string; revenue: number }>(`SELECT invoice_month AS month, SUM(revenue_all) AS revenue FROM pdr_invoice_month_metrics ${invoiceMonthWhere(filters)} GROUP BY 1 ORDER BY 1`);
 export const getRevenueByFY = (filters: Filters) => queryRows<{ fy: number; revenue: number }>(`SELECT ${invoiceFyFromMonthExpr} AS fy, SUM(revenue_all) AS revenue FROM pdr_invoice_month_metrics ${invoiceMonthWhere(filters)} GROUP BY 1 ORDER BY 1`);
-export const getOrdersByFY = (filters: Filters) => queryRows<{ fy: number; orders: number }>(`SELECT order_line_fy AS fy, SUM(order_lines) AS orders FROM pdr_order_month_metrics ${orderMonthWhere(filters)} GROUP BY 1 ORDER BY 1`);
+export const getOrdersByFY = (filters: Filters) => queryRows<{ fy: number; orders: number }>(filters.searchLineDesc
+  ? `SELECT order_line_fy AS fy, COUNT(DISTINCT order_line_id) AS orders FROM pdr_enriched ${orderStartDateWhere(filters)} GROUP BY 1 ORDER BY 1`
+  : `SELECT order_line_fy AS fy, SUM(order_lines) AS orders FROM pdr_part_order_start_metrics ${partOrderStartWhere(filters)} GROUP BY 1 ORDER BY 1`);
 export const getRevenueByProdGroup = (filters: Filters) => queryRows<{ prod_group: string; revenue: number }>(`SELECT prod_group, SUM(revenue_all) AS revenue FROM pdr_invoice_month_metrics ${invoiceMonthWhere(filters)} GROUP BY 1 ORDER BY 2 DESC LIMIT 10`);
 
 export const getDetailRows = (filters: Filters, limit = 300) => queryRows<Record<string, unknown>>(`
@@ -112,54 +168,125 @@ export const getCustomerOptions = (search = '', limit = 200) => {
 };
 
 export const getPartsPriorityRows = (filters: Filters, limit = 500) => queryRows<Record<string, unknown>>(`
+  WITH scoped AS (
+    SELECT *
+    FROM pdr_enriched ${buildWhereClause(filters)}
+  ), totals AS (
+    SELECT
+      part_num,
+      COUNT(DISTINCT order_line_id) AS orders,
+      SUM(amount) AS revenue,
+      SUM(CASE WHEN cost_present THEN amount - cost END) AS profit
+    FROM scoped
+    GROUP BY 1
+  ), scope_summary AS (
+    SELECT
+      part_num,
+      COUNT(DISTINCT cust_id) AS customer_count,
+      COUNT(DISTINCT country) AS country_count,
+      MAX(cust_id) AS sole_cust_id,
+      MAX(cust_name) AS sole_cust_name,
+      MAX(country) AS sole_country
+    FROM scoped
+    GROUP BY 1
+  ), canonical_desc AS (
+    SELECT
+      part_num,
+      line_desc AS line_desc_full,
+      ROW_NUMBER() OVER (PARTITION BY part_num ORDER BY COUNT(*) DESC, SUM(amount) DESC, line_desc ASC) AS rn
+    FROM scoped
+    GROUP BY 1,2
+  ), dominant_scope AS (
+    SELECT
+      part_num,
+      cust_id,
+      MAX(cust_name) AS cust_name,
+      MAX(country) AS country,
+      MAX(prod_group) AS prod_group,
+      ROW_NUMBER() OVER (PARTITION BY part_num ORDER BY SUM(amount) DESC, COUNT(DISTINCT order_line_id) DESC, cust_id ASC) AS rn
+    FROM scoped
+    GROUP BY 1,2
+  )
   SELECT
-    cust_id,
-    cust_name,
-    country,
-    part_num,
-    substr(line_desc, 1, 25) AS line_desc_short,
-    substr(max(line_desc), 1, 30) AS line_desc_display,
-    max(line_desc) AS line_desc_full,
-    prod_group,
-    COUNT(DISTINCT order_num) AS orders,
-    SUM(amount) AS revenue,
-    SUM(CASE WHEN cost_present THEN amount - cost END) AS profit,
-    CASE WHEN SUM(amount)=0 THEN 0 ELSE SUM(CASE WHEN cost_present THEN amount - cost END)/SUM(amount) END AS profit_pct
-  FROM pdr_enriched ${buildWhereClause(filters)}
-  GROUP BY 1,2,3,4,5,8
-  ORDER BY revenue DESC
+    CASE
+      WHEN COALESCE(scope_summary.customer_count, 0) <= 1 THEN COALESCE(scope_summary.sole_cust_id, dominant_scope.cust_id, '')
+      ELSE 'MULTI'
+    END AS cust_id,
+    CASE
+      WHEN COALESCE(scope_summary.customer_count, 0) <= 1 THEN COALESCE(scope_summary.sole_cust_name, dominant_scope.cust_name, '')
+      ELSE concat(CAST(scope_summary.customer_count AS VARCHAR), ' customers in scope')
+    END AS cust_name,
+    CASE
+      WHEN COALESCE(scope_summary.country_count, 0) <= 1 THEN COALESCE(scope_summary.sole_country, dominant_scope.country, '')
+      ELSE 'Multiple'
+    END AS country,
+    totals.part_num,
+    substr(COALESCE(canonical_desc.line_desc_full, ''), 1, 25) AS line_desc_short,
+    substr(COALESCE(canonical_desc.line_desc_full, ''), 1, 30) AS line_desc_display,
+    COALESCE(canonical_desc.line_desc_full, '') AS line_desc_full,
+    COALESCE(dominant_scope.prod_group, '') AS prod_group,
+    totals.orders,
+    totals.revenue,
+    COALESCE(totals.profit, 0) AS profit,
+    CASE WHEN totals.revenue = 0 THEN 0 ELSE COALESCE(totals.profit, 0) / totals.revenue END AS profit_pct
+  FROM totals
+  LEFT JOIN scope_summary ON scope_summary.part_num = totals.part_num
+  LEFT JOIN canonical_desc ON canonical_desc.part_num = totals.part_num AND canonical_desc.rn = 1
+  LEFT JOIN dominant_scope ON dominant_scope.part_num = totals.part_num AND dominant_scope.rn = 1
+  ORDER BY totals.revenue DESC
   LIMIT ${limit}
 `);
 
 export const getPartsRevenueByFY = (filters: Filters) => queryRows<Record<string, unknown>>(`
-  SELECT cust_id, cust_name, country, part_num, line_desc_short, prod_group, ${invoiceFyFromMonthExpr} AS fy, SUM(revenue_all) AS revenue
+  SELECT part_num, ${invoiceFyFromMonthExpr} AS fy, SUM(revenue_all) AS revenue
   FROM pdr_invoice_month_metrics ${invoiceMonthWhere(filters)}
-  GROUP BY 1,2,3,4,5,6,7
+  GROUP BY 1,2
 `);
 
-export const getPartsOrdersByFY = (filters: Filters) => queryRows<Record<string, unknown>>(`
-  SELECT cust_id, cust_name, country, part_num, line_desc_short, prod_group, order_line_fy AS fy, SUM(orders) AS orders
-  FROM pdr_order_month_metrics ${orderMonthWhere(filters)}
-  GROUP BY 1,2,3,4,5,6,7
-`);
+export const getPartsOrdersByFY = (filters: Filters) => queryRows<Record<string, unknown>>(filters.searchLineDesc
+  ? `SELECT part_num, order_line_fy AS fy, COUNT(DISTINCT order_line_id) AS orders FROM pdr_enriched ${orderStartDateWhere(filters)} GROUP BY 1,2`
+  : `SELECT part_num, order_line_fy AS fy, SUM(order_lines) AS orders FROM pdr_part_order_start_metrics ${partOrderStartWhere(filters)} GROUP BY 1,2`);
 
 export async function getPartYearMetrics(filters: Filters) {
   return queryRows<{ part_num: string; invoice_fy: number; order_line_fy: number; revenue: number; orders: number; profit: number; margin: number }>(`
-    WITH rev AS (
-      SELECT part_num, ${invoiceFyFromMonthExpr} AS fy, SUM(revenue_all) AS revenue, SUM(profit) AS profit
-      FROM pdr_invoice_month_metrics ${invoiceMonthWhere(filters)} GROUP BY 1,2
-    ), ord AS (
-      SELECT part_num, order_line_fy AS fy, SUM(order_lines) AS orders
-      FROM pdr_order_month_metrics ${orderMonthWhere(filters)} GROUP BY 1,2
+    WITH revenue AS (
+      SELECT
+        part_num,
+        ${invoiceFyFromMonthExpr} AS fy,
+        SUM(revenue_all) AS revenue,
+        SUM(profit) AS profit
+      FROM pdr_invoice_month_metrics ${invoiceMonthWhere(filters)}
+      GROUP BY 1,2
+    ), orders AS (
+      ${filters.searchLineDesc
+        ? `SELECT
+          part_num,
+          order_line_fy AS fy,
+          COUNT(DISTINCT order_line_id) AS orders
+        FROM pdr_enriched ${orderStartDateWhere(filters)}
+        GROUP BY 1,2`
+        : `SELECT
+          part_num,
+          order_line_fy AS fy,
+          SUM(order_lines) AS orders
+        FROM pdr_part_order_start_metrics ${partOrderStartWhere(filters)}
+        GROUP BY 1,2`}
+    ), scope_years AS (
+      SELECT part_num, fy FROM revenue
+      UNION
+      SELECT part_num, fy FROM orders
     )
-    SELECT COALESCE(rev.part_num, ord.part_num) AS part_num,
-      COALESCE(rev.fy, ord.fy) AS invoice_fy,
-      COALESCE(ord.fy, rev.fy) AS order_line_fy,
-      COALESCE(revenue,0) AS revenue,
-      COALESCE(orders,0) AS orders,
-      COALESCE(profit,0) AS profit,
-      CASE WHEN COALESCE(revenue,0)=0 THEN 0 ELSE COALESCE(profit,0)/revenue END AS margin
-    FROM rev FULL OUTER JOIN ord ON rev.part_num=ord.part_num AND rev.fy=ord.fy
+    SELECT
+      scope_years.part_num,
+      scope_years.fy AS invoice_fy,
+      scope_years.fy AS order_line_fy,
+      COALESCE(revenue.revenue, 0) AS revenue,
+      COALESCE(orders.orders, 0) AS orders,
+      COALESCE(revenue.profit, 0) AS profit,
+      CASE WHEN COALESCE(revenue.revenue, 0) = 0 THEN 0 ELSE COALESCE(revenue.profit, 0) / revenue.revenue END AS margin
+    FROM scope_years
+    LEFT JOIN revenue ON revenue.part_num = scope_years.part_num AND revenue.fy = scope_years.fy
+    LEFT JOIN orders ON orders.part_num = scope_years.part_num AND orders.fy = scope_years.fy
   `);
 }
 

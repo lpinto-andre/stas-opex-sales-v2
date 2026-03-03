@@ -128,11 +128,12 @@ export function DatabasePage() {
 
   useEffect(() => {
     Promise.all([getPartsPriorityRows(filters, 2000), getPartsRevenueByFY(filters), getPartsOrdersByFY(filters)]).then(([base, revFy, ordFy]) => {
-      const keyOf = (r: Record<string, unknown>) => `${r.cust_id}|${r.cust_name}|${r.country}|${r.part_num}|${r.line_desc_short}|${r.prod_group}`;
+      const keyOf = (r: Record<string, unknown>) => String(r.part_num ?? '');
       const map = new Map<string, PartRow>();
       const yearsSet = new Set<number>();
       (base as Record<string, unknown>[]).forEach((r) => {
         const key = keyOf(r);
+        if (!key) return;
         map.set(key, {
           cust_id: String(r.cust_id ?? ''),
           cust_name: String(r.cust_name ?? ''),

@@ -149,6 +149,8 @@ export async function buildModel(dataBytes: Uint8Array) {
     const adb = await getDb();
     await adb.registerFileBuffer('pdr.ndjson', dataBytes);
     await withConnection(async (conn) => {
+      await conn.query('DROP TABLE IF EXISTS pdr_part_order_start_metrics');
+      await conn.query('DROP TABLE IF EXISTS pdr_part_month_metrics');
       await conn.query('DROP TABLE IF EXISTS pdr_order_month_metrics');
       await conn.query('DROP TABLE IF EXISTS pdr_invoice_month_metrics');
       await conn.query('DROP TABLE IF EXISTS pdr_enriched');
@@ -159,6 +161,28 @@ export async function buildModel(dataBytes: Uint8Array) {
       await conn.query(`CREATE TABLE pdr_clean AS SELECT trim(cust_id) AS cust_id, trim(cust_name) AS cust_name, trim(country) AS country, trim(territory) AS territory, trim(prod_group) AS prod_group, trim(prod_group_desc) AS prod_group_desc, trim(part_num) AS part_num, trim(line_desc) AS line_desc, trim(class_id) AS class_id, trim(class_desc) AS class_desc, trim(invoice_num) AS invoice_num, CAST(invoice_date AS DATE) AS invoice_date, trim(order_num) AS order_num, CAST(amount AS DOUBLE) AS amount, CAST(cost AS DOUBLE) AS cost, CASE WHEN cost IS NULL THEN false ELSE true END AS cost_present, CASE WHEN EXTRACT(MONTH FROM CAST(invoice_date AS DATE)) >= 5 THEN EXTRACT(YEAR FROM CAST(invoice_date AS DATE)) + 1 ELSE EXTRACT(YEAR FROM CAST(invoice_date AS DATE)) END AS invoice_fy, strftime(CAST(invoice_date AS DATE), '%Y-%m') AS invoice_month, concat(trim(order_num), '|', trim(part_num)) AS order_line_id FROM pdr_raw WHERE CAST(amount AS DOUBLE) > 0`);
       await conn.query(`CREATE TABLE order_line_first AS SELECT order_line_id, MIN(invoice_date) AS first_invoice_date, CASE WHEN EXTRACT(MONTH FROM MIN(invoice_date)) >= 5 THEN EXTRACT(YEAR FROM MIN(invoice_date)) + 1 ELSE EXTRACT(YEAR FROM MIN(invoice_date)) END AS first_invoice_fy FROM pdr_clean GROUP BY order_line_id`);
       await conn.query(`CREATE TABLE pdr_enriched AS SELECT c.*, CASE WHEN c.cost_present THEN c.amount - c.cost ELSE NULL END AS profit, CASE WHEN c.cost_present AND c.amount <> 0 THEN (c.amount - c.cost) / c.amount ELSE NULL END AS profit_pct, o.first_invoice_date AS order_line_first_invoice_date, o.first_invoice_fy AS order_line_fy FROM pdr_clean c LEFT JOIN order_line_first o USING(order_line_id)`);
+      await conn.query(`
+        CREATE TABLE pdr_part_month_metrics AS
+        SELECT
+          invoice_month,
+          invoice_fy,
+          cust_id,
+          cust_name,
+          country,
+          territory,
+          prod_group,
+          class_id,
+          part_num,
+          SUM(amount) AS revenue_all,
+          SUM(CASE WHEN cost_present THEN amount ELSE 0 END) AS revenue_cost_present,
+          SUM(CASE WHEN cost_present THEN cost ELSE 0 END) AS cost,
+          SUM(CASE WHEN cost_present THEN amount - cost ELSE 0 END) AS profit,
+          COUNT(DISTINCT order_num) AS orders,
+          COUNT(DISTINCT order_line_id) AS order_lines,
+          SUM(CASE WHEN cost_present THEN 0 ELSE 1 END) AS missing_cost_rows
+        FROM pdr_enriched
+        GROUP BY 1,2,3,4,5,6,7,8,9
+      `);
       await conn.query(`
         CREATE TABLE pdr_invoice_month_metrics AS
         SELECT
@@ -178,6 +202,22 @@ export async function buildModel(dataBytes: Uint8Array) {
           SUM(CASE WHEN cost_present THEN cost ELSE 0 END) AS cost,
           SUM(CASE WHEN cost_present THEN amount - cost ELSE 0 END) AS profit,
           SUM(CASE WHEN cost_present THEN 0 ELSE 1 END) AS missing_cost_rows
+        FROM pdr_enriched
+        GROUP BY 1,2,3,4,5,6,7,8,9
+      `);
+      await conn.query(`
+        CREATE TABLE pdr_part_order_start_metrics AS
+        SELECT
+          strftime(order_line_first_invoice_date, '%Y-%m') AS order_line_first_month,
+          order_line_fy,
+          cust_id,
+          cust_name,
+          country,
+          territory,
+          prod_group,
+          class_id,
+          part_num,
+          COUNT(DISTINCT order_line_id) AS order_lines
         FROM pdr_enriched
         GROUP BY 1,2,3,4,5,6,7,8,9
       `);
@@ -207,6 +247,8 @@ export async function buildModel(dataBytes: Uint8Array) {
 
 export async function dropAllTables() {
   return enqueueWrite(() => runWithRetry(async () => withConnection(async (conn) => {
+    await conn.query('DROP TABLE IF EXISTS pdr_part_order_start_metrics');
+    await conn.query('DROP TABLE IF EXISTS pdr_part_month_metrics');
     await conn.query('DROP TABLE IF EXISTS pdr_order_month_metrics');
     await conn.query('DROP TABLE IF EXISTS pdr_invoice_month_metrics');
     await conn.query('DROP TABLE IF EXISTS pdr_enriched');
